@@ -1,4 +1,8 @@
 #!/bin/sh
+
+export OPENSSL_VERSION="1.0.2t"
+export OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
+
 export SRC=Python-3.7.5rc1
 export NDK_HOME=${NDK_HOME:-$(pwd)/android-ndk-r20}
 export DN=org.beeware
@@ -92,9 +96,22 @@ project(beeware)
 
 include(ExternalProject)
 
+ExternalProject_Add(
+    openssl
+    #URL https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+    URL http://192.168.1.66/cfake/openssl-${OPENSSL_VERSION}.tar.gz
+    URL_HASH SHA256=${OPENSSL_HASH}
+
+    PATCH_COMMAND patch -p1 < ${ORIGIN}/patch/openssl-${OPENSSL_VERSION}/Configure.diff
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND ""
+)
 
 ExternalProject_Add(
     python3
+    DEPENDS openssl
+
     #GIT_REPOSITORY https://github.com/python/cpython.git
     #GIT_TAG 4082f600a5bd69c8f4a36111fa5eb197d7547756 # 3.7.5rc1
     #URL https://github.com/python/cpython/archive/v3.7.5rc1.tar.gz
@@ -102,15 +119,11 @@ ExternalProject_Add(
     URL http://192.168.1.66/cfake/v3.7.5rc1.tar.gz
     URL_HASH SHA256=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
 
-    CONFIGURE_COMMAND ""
-    # --without-gcc
-    COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${ROOT}/python3.host --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
+    CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${ROOT}/python3.host --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
 
-    BUILD_COMMAND ""
-    COMMAND sh -c "cd ${PYSRC} && make"
+    BUILD_COMMAND sh -c "cd ${PYSRC} && make"
 
-    INSTALL_COMMAND ""
-    COMMAND sh -c "cd ${PYSRC} && make install >/dev/null 2>&1 && /bin/cp -aRfxp ${PYSRC} ${PYDROID} "
+    INSTALL_COMMAND sh -c "cd ${PYSRC} && make install >/dev/null 2>&1 && /bin/cp -aRfxp ${PYSRC} ${PYDROID} "
 )
 
 
@@ -213,8 +226,18 @@ do
     # eventually restore full triple
     export TRIPLE=$BUILD_TYPE
 
-    mkdir -p android-${ABI}
-    cd android-${ABI}
+    # == building openssl
+    echo " * configure target==openssl $TRIPLE"
+    mkdir -p openssl-${ABI}
+    cd openssl-${ABI}
+    /bin/cp -aRfxp ${BUILD}/openssl-prefix/src/openssl/. ./
+    CROSS_COMPILE="" ./Configure android shared no-ssl2 no-ssl3 no-comp no-hw && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make
+
+    # == building cpython
+if false
+then
+    mkdir -p python3-${ABI}
+    cd python3-${ABI}
 
 cat >config.site <<END
 ac_cv_little_endian_double=yes
@@ -237,7 +260,7 @@ END
     export CONFIG_SITE='config.site'
     # --with-system-ffi
     PYOPTS="--without-gcc --disable-ipv6 --without-ensurepip --with-c-locale-coercion --without-pymalloc --disable-shared --with-computed-gotos"
-    echo " * configure target $TRIPLE"
+    echo " * configure target==python $TRIPLE"
     if ${PYDROID}/configure --host=${TRIPLE} --build=x86_64-pc-linux-gnu --prefix=$APK $PYOPTS >/dev/null 2>&1
     then
         reset
@@ -247,6 +270,9 @@ END
         echo "Configuration failed for $TRIPLE"
         env|grep $TOOLCHAIN
     fi
+
+fi
+
     break
 done
 
