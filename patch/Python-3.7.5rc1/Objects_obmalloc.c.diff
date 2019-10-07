@@ -1,0 +1,14 @@
+--- cpython-3.7.5rc1/Objects/obmalloc.c	2019-10-01 19:23:17.000000000 +0200
++++ cpython-3.7.5rc1.android/Objects/obmalloc.c	2019-10-06 21:09:19.516695560 +0200
+@@ -2,6 +2,11 @@
+ 
+ #include <stdbool.h>
+ 
++//PMPP API<21
++#if __ANDROID_API__ < 21
++    extern void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
++#endif
++//PMPP API<21
+ 
+ /* Defined in tracemalloc.c */
+ extern void _PyMem_DumpTraceback(int fd, const void *ptr);

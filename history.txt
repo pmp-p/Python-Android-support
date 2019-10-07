@@ -1,0 +1,22 @@
+xdegaye ( cpython )
+bpo-30386 : https://github.com/python/cpython/pull/1629
+abifa : https://gitlab.com/xdegaye/abifa
+
+
+api 19 ( experimental patches )
+https://github.com/pmp-p/pydk
+
+--------------- python-for-android remix  ------------------
+pygame codebase :
+https://github.com/renpy/python-for-android
+
+kivy context :
+https://github.com/kivy/python-for-android/issues/1455
+
+(bpo-30386) : 
+https://github.com/kivy/python-for-android/issues/1202
+https://github.com/kivy/python-for-android/pull/1375
+
+Python 3 recipe #1412 (with api 19 patches offering) :
+https://github.com/kivy/python-for-android/pull/1412#issuecomment-430480294
+
