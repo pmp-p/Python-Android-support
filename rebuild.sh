@@ -3,10 +3,12 @@
 export OPENSSL_VERSION="1.0.2t"
 export OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
 
-export SRC=Python-3.7.5rc1
+export PYVER=Python-3.7.5rc1
 export NDK_HOME=${NDK_HOME:-$(pwd)/android-ndk-r20}
 export DN=org.beeware
 export APP=small
+
+HOST_TRIPLET=x86_64-linux-gnu
 
 if grep "^Pkg.Revision = 20" $NDK_HOME/source.properties
 then
@@ -16,37 +18,54 @@ else
     read continue
 fi
 
+OLD_PATH=$PATH
 
 ORIGIN=$(pwd)
 ROOT="${ORIGIN}/beeware"
 BUILD="${ROOT}/build"
 PYSRC="${BUILD}/python3-prefix/src/python3"
-PYDROID="${BUILD}/python3-android"
+export PYDROID="${BUILD}/python3-android"
 
-
-#export APK=/data/data/${DN}.${APP}
-export APK=${ROOT}/prebuilt/$ABI
+export APK=/data/data/${DN}.${APP}
 
 export PYTHONDONTWRITEBYTECODE=1
 
-for py in 8 7 6
+for py in 7 6 5
 do
     if which python3.${py}
     then
-        export PYTHON=python3.${py}
+        export PYTHON=$(which python3.${py})
         break
     fi
 done
 
+
 if [ -d beeware ]
 then
-    echo " * using previous build dir ${ORIGIN}/beeware"
+    echo " * using previous build dir ${ROOT}"
+    cd ${ROOT}
+
 else
+    echo " * create venv ${ROOT}"
     $PYTHON -m venv beeware --prompt beeware-python-build
+    cd ${ROOT}
+    touch new_env
+fi
 
-    cd beeware
-    . bin/activate
+. bin/activate
 
+cd ${ROOT}
+
+mkdir -p build
+
+date > ${BUILD}/build.log
+env >> ${BUILD}/build.log
+echo  >> ${BUILD}/build.log
+echo  >> ${BUILD}/build.log
+
+
+if [ -f new_env ]
+then
 
     pip install scikit-build
     pip install cmake==3.10.3
@@ -71,7 +90,10 @@ cat > $DN.$APP/src/main/AndroidManifest.xml  <<END
         </application>
     </manifest>
 END
+rm new_env
 fi
+
+
 
 
 
@@ -119,19 +141,18 @@ ExternalProject_Add(
     URL http://192.168.1.66/cfake/v3.7.5rc1.tar.gz
     URL_HASH SHA256=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
 
+    PATCH_COMMAND sh -c "/bin/cp -aRfxp ${PYSRC} ${PYDROID}"
+
     CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${ROOT}/python3.host --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
 
     BUILD_COMMAND sh -c "cd ${PYSRC} && make"
 
-    INSTALL_COMMAND sh -c "cd ${PYSRC} && make install >/dev/null 2>&1 && /bin/cp -aRfxp ${PYSRC} ${PYDROID} "
+    INSTALL_COMMAND sh -c "cd ${PYSRC} && make install >/dev/null 2>&1"
 )
 
 
 END
 
-    rm -rf build
-
-    mkdir -p build
     cd build
     cmake ..
     make && make install
@@ -144,11 +165,16 @@ export HOST_TAG=linux-x86_64
 #export PYTHONHOME=${BUILD}/python3.host
 
 #export HOSTPYTHON=${BUILD}/python3.host/bin/python3
-export HOSTPYTHON=${PYSRC}/python
+#export HOSTPYTHON=${PYDROID}/python
 
 #note that this one must be a executable from a source tree, not an installed one.
-export PYTHON_FOR_BUILD=${PYSRC}/python
-export CROSS_COMPILE=yes
+#export PYTHON_FOR_BUILD=${PYDROID}/python
+#export CROSS_COMPILE=yes
+# _PYTHON_PROJECT_BASE=$(pwd)
+# PYTHON_FOR_BUILD=${PYDROID}/host_python
+# _PYTHON_HOST_PLATFORM=$_PYTHON_HOST_PLATFORM
+
+
 
 
 
@@ -159,9 +185,9 @@ cd ${PYDROID}
 
 if [ -f Patched ]
 then
-    echo " * ${SRC} tree already patched"
+    echo " * ${PYVER} tree already patched"
 else
-    for PATCH in ${ORIGIN}/patch/${SRC}/*.diff
+    for PATCH in ${ORIGIN}/patch/${PYVER}/*.diff
     do
         patch -p1 < ${PATCH}
     done
@@ -170,50 +196,78 @@ fi
 
 cd ${ROOT}
 
+deactivate()
+export PATH=$OLD_PATH
+hash -r
+
+cd ${ROOT}
+
+
 export API=19
 
 
-for ABI in armeabi-v7a arm64-v8a x86 x86-64
+
+
+unset VIRTUAL_ENV
+echo
+echo
+echo "------------------------------------------------------------------"
+env|grep PY
+env|grep py
+echo "------------------------------------------------------------------"
+env|grep VIRT
+echo "------------------------------------------------------------------"
+env|grep droid
+echo "------------------------------------------------------------------"
+echo
+echo
+read continue
+
+
+
+
+
+
+for TARGET_ARCH_ABI in armeabi-v7a arm64-v8a x86 x86-64
 do
     unset NDK_PREFIX
+    export PREBUILT=${ROOT}/prebuilt-${TARGET_ARCH_ABI}
 
     export TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG
 
-    case "$ABI" in
+    case "$TARGET_ARCH_ABI" in
         armeabi-v7a)
-            TRIPLE=armv7a-linux-androideabi
-            _PYTHON_HOST_PLATFORM=linux-arm
+            PLATFORM_TRIPLET=armv7a-linux-androideabi
+            BITS=32
             export NDK_PREFIX="arm-linux-androideabi"
             ;;
         arm64-v8a)
-            TRIPLE=aarch64-linux-android
-            _PYTHON_HOST_PLATFORM=linux-arm64
+            PLATFORM_TRIPLET=aarch64-linux-android
+            BITS=64
             ;;
         x86)
-            TRIPLE=i686-linux-android
-            _PYTHON_HOST_PLATFORM=linux-x86
+            PLATFORM_TRIPLET=i686-linux-android
+            BITS=32
             ;;
         x86-64)
-            TRIPLE=x86_64-linux-android
-            _PYTHON_HOST_PLATFORM=linux-x86_64
+            PLATFORM_TRIPLET=x86_64-linux-android
+            BITS=64
             ;;
     esac
 
 
-    export CC=$TOOLCHAIN/bin/${TRIPLE}${API}-clang
-    export CXX=$TOOLCHAIN/bin/${TRIPLE}${API}-clang++
 
 
-    export CFLAGS="-target ${TRIPLE}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
-    export CFLAGS="$CFLAGS -Wno-multichar -funwind-tables"
+    export CC=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang
+    export CXX=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang++
 
-    export BUILD_TYPE=$TRIPLE
+    export BUILD_TYPE=$PLATFORM_TRIPLET
 
     if echo $NDK_PREFIX|grep -q abi
     then
-        TRIPLE=$NDK_PREFIX
+        PLATFORM_TRIPLET=$NDK_PREFIX
     else
-        NDK_PREFIX=$TRIPLE
+        NDK_PREFIX=$PLATFORM_TRIPLET
     fi
 
     export LD=$TOOLCHAIN/bin/${NDK_PREFIX}-ld
@@ -223,22 +277,39 @@ do
     export RANLIB=$TOOLCHAIN/bin/${NDK_PREFIX}-ranlib
     export STRIP=$TOOLCHAIN/bin/${NDK_PREFIX}-strip
 
-    # eventually restore full triple
-    export TRIPLE=$BUILD_TYPE
+    # eventually restore full PLATFORM_TRIPLET
+    PLATFORM_TRIPLET=$BUILD_TYPE
 
     # == building openssl
-    echo " * configure target==openssl $TRIPLE"
-    mkdir -p openssl-${ABI}
-    cd openssl-${ABI}
-    /bin/cp -aRfxp ${BUILD}/openssl-prefix/src/openssl/. ./
-    CROSS_COMPILE="" ./Configure android shared no-ssl2 no-ssl3 no-comp no-hw && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make
+    cd ${BUILD}
+
+    echo " * configure target==openssl ${PLATFORM_TRIPLET}"
+    mkdir -p openssl-${TARGET_ARCH_ABI}
+    cd openssl-${TARGET_ARCH_ABI}
+    if [ -f libssl.a ]
+    then
+        echo "    -> openssl-${OPENSSL_VERSION} already built for $ABI"
+    else
+        /bin/cp -aRfxp ${BUILD}/openssl-prefix/src/openssl/. ./
+
+        CROSS_COMPILE="" ./Configure android shared no-ssl2 no-ssl3 no-comp no-hw && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make && ln -s . lib
+    fi
+
+    export SSL=${BUILD}/openssl-${TARGET_ARCH_ABI}
 
     # == building cpython
-if false
-then
-    mkdir -p python3-${ABI}
-    cd python3-${ABI}
+    cd ${BUILD}
 
+    mkdir -p python3-${TARGET_ARCH_ABI}
+    cd python3-${TARGET_ARCH_ABI}
+    export BUILD_DIR=$(pwd)
+
+
+
+
+
+if true
+then
 cat >config.site <<END
 ac_cv_little_endian_double=yes
 ac_cv_file__dev_ptmx=yes
@@ -257,19 +328,127 @@ ac_cv_func_getspent=no
 ac_cv_func_getgrouplist=no
 END
 
-    export CONFIG_SITE='config.site'
+mkdir -p Modules
+cat <<END > Modules/Setup.local
+*static*
+
+_struct _struct.c	# binary structure packing/unpacking
+_sre _sre.c				# Fredrik Lundh's new regular expressions
+_datetime _datetimemodule.c	# datetime accelerator
+_codecs _codecsmodule.c			# access to the builtin codecs and codec registry
+_weakref _weakref.c			# weak references
+
+array arraymodule.c # array objects
+cmath cmathmodule.c _math.c # -lm # complex math library functions
+math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
+_contextvars _contextvarsmodule.c
+_struct _struct.c   # binary structure packing/unpacking
+_weakref _weakref.c
+time timemodule.c # -lm # time operations and variables
+_operator _operator.c   # operator.add() and similar goodies
+_random _randommodule.c # Random number generator
+_collections _collectionsmodule.c # Container types
+_functools _functoolsmodule.c   # Tools for working with functions and callable objects
+itertools itertoolsmodule.c    # Functions creating iterators for efficient looping
+_bisect _bisectmodule.c # Bisection algorithms
+_json _json.c
+binascii binascii.c
+#asyncio req
+select selectmodule.c
+fcntl fcntlmodule.c
+_sha1 sha1module.c
+_sha256 sha256module.c
+_sha512 sha512module.c
+_md5 md5module.c
+#
+termios termios.c
+#_sha3 _sha3/sha3module.c
+#_blake2 _blake2/blake2module.c _blake2/blake2b_impl.c _blake2/blake2s_impl.c
+#aiohttp
+unicodedata unicodedata.c
+zlib zlibmodule.c
+#future_builtins future_builtins.c
+
+_socket socketmodule.c
+_ssl _ssl.c -DUSE_SSL -I${SSL}/include/openssl -I${SSL}/include -L${SSL}/lib -lssl -lcrypto
+
+_decimal _decimal/_decimal.c \
+ _decimal/libmpdec/basearith.c \
+ _decimal/libmpdec/constants.c \
+ _decimal/libmpdec/context.c \
+ _decimal/libmpdec/convolute.c \
+ _decimal/libmpdec/crt.c \
+ _decimal/libmpdec/difradix2.c \
+ _decimal/libmpdec/fnt.c \
+ _decimal/libmpdec/fourstep.c \
+ _decimal/libmpdec/io.c \
+ _decimal/libmpdec/memory.c \
+ _decimal/libmpdec/mpdecimal.c \
+ _decimal/libmpdec/numbertheory.c \
+ _decimal/libmpdec/sixstep.c \
+ _decimal/libmpdec/transpose.c \
+ -DCONFIG_${BITS} -DANSI -I${PYDROID}/Modules/_decimal/libmpdec
+
+END
+
+    echo " * configure target==python $PLATFORM_TRIPLET"
+
+
     # --with-system-ffi
+
+
     PYOPTS="--without-gcc --disable-ipv6 --without-ensurepip --with-c-locale-coercion --without-pymalloc --disable-shared --with-computed-gotos"
-    echo " * configure target==python $TRIPLE"
-    if ${PYDROID}/configure --host=${TRIPLE} --build=x86_64-pc-linux-gnu --prefix=$APK $PYOPTS >/dev/null 2>&1
-    then
-        reset
-        > Lib/compileall.py
-        make _PYTHON_HOST_PLATFORM=$_PYTHON_HOST_PLATFORM install
-    else
-        echo "Configuration failed for $TRIPLE"
-        env|grep $TOOLCHAIN
-    fi
+
+    [ -f Makefile ] && make clean && rm Makefile
+
+    #cp -vf $(find $PYSRC/|grep _sysconfigdata_.*.py$) $PYDROID/Lib/
+    #cp -vf Modules/Setup.local $PYDROID/Modules/
+
+    cp -vf $PYSRC/python $PYDROID/host_python
+
+
+    export CFLAGS="-fPIC -Wno-multichar -funwind-tables -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+
+# ${PYDROID}/host_python
+
+#PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
+
+cat > ./build.sh <<END
+#!/bin/sh
+export STRIP=$STRIP
+export READELF=$READELF
+export AR=$AR
+export AS=$AS
+export LD=$LD
+export CXX=$CXX
+export CC=$CC
+export RANLIB=$RANLIB
+
+export PYDROID=$PYDROID
+export BUILD_DIR=$BUILD_DIR
+export PATH=/bin:/usr/bin:/usr/local/bin
+
+CONFIG_SITE=config.site \\
+ CFLAGS="$CFLAGS" \\
+ \${PYDROID}/configure --with-libs='-lz -lm' --with-openssl=${SSL} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
+
+if [ -f Makefile ]
+then
+    TERM=linux reset
+    > \${PYDROID}/Lib/compileall.py
+    make
+else
+    echo ================== ${BUILD}/build.log ===================
+    tail -n 20 ${BUILD}/build.log
+    echo "Configuration failed for $PLATFORM_TRIPLET"
+    env
+fi
+END
+
+    # need a very clean env for true reproducibility
+
+    env -i sh build.sh
+
 
 fi
 
