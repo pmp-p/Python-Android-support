@@ -1,5 +1,7 @@
 #!/bin/sh
 
+export API=19
+
 export OPENSSL_VERSION="1.0.2t"
 export OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
 
@@ -8,7 +10,10 @@ export NDK_HOME=${NDK_HOME:-$(pwd)/android-ndk-r20}
 export DN=org.beeware
 export APP=small
 
-HOST_TRIPLET=x86_64-linux-gnu
+export HOST_TRIPLET=x86_64-linux-gnu
+export HOST_TAG=linux-x86_64
+
+
 
 if grep "^Pkg.Revision = 20" $NDK_HOME/source.properties
 then
@@ -22,7 +27,9 @@ OLD_PATH=$PATH
 
 ORIGIN=$(pwd)
 ROOT="${ORIGIN}/beeware"
-BUILD="${ROOT}/build"
+BUILD_PREFIX="${ROOT}/build"
+BUILD=${BUILD_PREFIX}-src
+
 PYSRC="${BUILD}/python3-prefix/src/python3"
 export PYDROID="${BUILD}/python3-android"
 
@@ -30,7 +37,7 @@ export APK=/data/data/${DN}.${APP}
 
 export PYTHONDONTWRITEBYTECODE=1
 
-for py in 7 6 5
+for py in 8 7 6 5
 do
     if which python3.${py}
     then
@@ -56,7 +63,7 @@ fi
 
 cd ${ROOT}
 
-mkdir -p build
+mkdir -p ${BUILD}
 
 date > ${BUILD}/build.log
 env >> ${BUILD}/build.log
@@ -67,9 +74,13 @@ echo  >> ${BUILD}/build.log
 if [ -f new_env ]
 then
 
-    pip install scikit-build
-    pip install cmake==3.10.3
-
+    if pip install scikit-build
+    then
+        if pip install cmake==3.10.3
+        then
+            rm new_env
+        fi
+    fi
     # == create a skeleton for a minimal application with a gradle build system.
 
     # apk will live in /data/data/$DN.$APP on device
@@ -90,16 +101,14 @@ cat > $DN.$APP/src/main/AndroidManifest.xml  <<END
         </application>
     </manifest>
 END
-rm new_env
+
 fi
 
 
 
 
 
-
-# == create a fake cmake project for the purpose of download cpython source and building host python
-
+# == create a fake cmake project for the purpose of downloading sources and building host python
 
 
 cd "${ROOT}"
@@ -131,8 +140,20 @@ ExternalProject_Add(
 )
 
 ExternalProject_Add(
+    libffi
+    #URL https://github.com/libffi/libffi/releases/download/v3.3-rc0/libffi-3.3-rc0.tar.gz
+    URL http://192.168.1.66/cfake/libffi-3.3-rc0.tar.gz
+    URL_HASH SHA256=403d67aabf1c05157855ea2b1d9950263fb6316536c8c333f5b9ab1eb2f20ecf
+
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND ""
+)
+
+ExternalProject_Add(
     python3
     DEPENDS openssl
+    DEPENDS libffi
 
     #GIT_REPOSITORY https://github.com/python/cpython.git
     #GIT_TAG 4082f600a5bd69c8f4a36111fa5eb197d7547756 # 3.7.5rc1
@@ -153,28 +174,11 @@ ExternalProject_Add(
 
 END
 
-    cd build
+    cd ${BUILD}
     cmake ..
     make && make install
 
 fi
-
-export HOST_TAG=linux-x86_64
-
-
-#export PYTHONHOME=${BUILD}/python3.host
-
-#export HOSTPYTHON=${BUILD}/python3.host/bin/python3
-#export HOSTPYTHON=${PYDROID}/python
-
-#note that this one must be a executable from a source tree, not an installed one.
-#export PYTHON_FOR_BUILD=${PYDROID}/python
-#export CROSS_COMPILE=yes
-# _PYTHON_PROJECT_BASE=$(pwd)
-# PYTHON_FOR_BUILD=${PYDROID}/host_python
-# _PYTHON_HOST_PLATFORM=$_PYTHON_HOST_PLATFORM
-
-
 
 
 
@@ -196,34 +200,18 @@ fi
 
 cd ${ROOT}
 
-deactivate()
-export PATH=$OLD_PATH
-hash -r
-
-cd ${ROOT}
 
 
-export API=19
+Building () {
+    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
 
+    echo " * configure target==$1 ${PLATFORM_TRIPLET}"
 
+    mkdir -p $1-${TARGET_ARCH_ABI}
+    cd $1-${TARGET_ARCH_ABI}
+    /bin/cp -aRfxp ${BUILD}/$1-prefix/src/$1/. ./
 
-
-unset VIRTUAL_ENV
-echo
-echo
-echo "------------------------------------------------------------------"
-env|grep PY
-env|grep py
-echo "------------------------------------------------------------------"
-env|grep VIRT
-echo "------------------------------------------------------------------"
-env|grep droid
-echo "------------------------------------------------------------------"
-echo
-echo
-read continue
-
-
+}
 
 
 
@@ -234,6 +222,9 @@ do
     export PREBUILT=${ROOT}/prebuilt-${TARGET_ARCH_ABI}
 
     export TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG
+
+    mkdir -p ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
+    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
 
     case "$TARGET_ARCH_ABI" in
         armeabi-v7a)
@@ -254,8 +245,6 @@ do
             BITS=64
             ;;
     esac
-
-
 
 
     export CC=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang
@@ -280,8 +269,42 @@ do
     # eventually restore full PLATFORM_TRIPLET
     PLATFORM_TRIPLET=$BUILD_TYPE
 
+
+    # that env file can be handy for debugging compile failures.
+
+    cat > $ROOT/${TARGET_ARCH_ABI}.sh <<END
+#!/bin/sh
+export STRIP=$STRIP
+export READELF=$READELF
+export AR=$AR
+export AS=$AS
+export LD=$LD
+export CXX=$CXX
+export CC=$CC
+export RANLIB=$RANLIB
+
+export PATH=/bin:/usr/bin:/usr/local/bin
+
+END
+
+
+
+
+    # == building libffi
+
+    Building libffi
+
+
+    if ./configure --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} && make && make install
+    then
+        echo "done"
+    else
+        break
+    fi
+
+
     # == building openssl
-    cd ${BUILD}
+    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
 
     echo " * configure target==openssl ${PLATFORM_TRIPLET}"
     mkdir -p openssl-${TARGET_ARCH_ABI}
@@ -295,22 +318,20 @@ do
         CROSS_COMPILE="" ./Configure android shared no-ssl2 no-ssl3 no-comp no-hw && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make && ln -s . lib
     fi
 
-    export SSL=${BUILD}/openssl-${TARGET_ARCH_ABI}
+    export SSL=${BUILD_PREFIX}-${TARGET_ARCH_ABI}/openssl-${TARGET_ARCH_ABI}
 
     # == building cpython
-    cd ${BUILD}
+    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
 
     mkdir -p python3-${TARGET_ARCH_ABI}
     cd python3-${TARGET_ARCH_ABI}
-    export BUILD_DIR=$(pwd)
+
+    _PYTHON_PROJECT_SRC=${PYDROID}
+    _PYTHON_PROJECT_BASE=$(pwd)
 
 
 
-
-
-if true
-then
-cat >config.site <<END
+    cat >config.site <<END
 ac_cv_little_endian_double=yes
 ac_cv_file__dev_ptmx=yes
 ac_cv_file__dev_ptc=no
@@ -372,6 +393,12 @@ zlib zlibmodule.c
 _socket socketmodule.c
 _ssl _ssl.c -DUSE_SSL -I${SSL}/include/openssl -I${SSL}/include -L${SSL}/lib -lssl -lcrypto
 
+_ctypes _ctypes/_ctypes.c \
+ _ctypes/callbacks.c \
+ _ctypes/callproc.c \
+ _ctypes/stgdict.c \
+ _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I$PREBUILT/include $PREBUILT/lib/libffi.a
+
 _decimal _decimal/_decimal.c \
  _decimal/libmpdec/basearith.c \
  _decimal/libmpdec/constants.c \
@@ -393,7 +420,6 @@ END
 
     echo " * configure target==python $PLATFORM_TRIPLET"
 
-
     # --with-system-ffi
 
 
@@ -401,36 +427,23 @@ END
 
     [ -f Makefile ] && make clean && rm Makefile
 
-    #cp -vf $(find $PYSRC/|grep _sysconfigdata_.*.py$) $PYDROID/Lib/
-    #cp -vf Modules/Setup.local $PYDROID/Modules/
-
     cp -vf $PYSRC/python $PYDROID/host_python
-
 
     export CFLAGS="-fPIC -Wno-multichar -funwind-tables -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
-# ${PYDROID}/host_python
 
-#PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 
-cat > ./build.sh <<END
-#!/bin/sh
-export STRIP=$STRIP
-export READELF=$READELF
-export AR=$AR
-export AS=$AS
-export LD=$LD
-export CXX=$CXX
-export CC=$CC
-export RANLIB=$RANLIB
+cp $ROOT/${TARGET_ARCH_ABI}.sh ./build.sh
 
-export PYDROID=$PYDROID
-export BUILD_DIR=$BUILD_DIR
-export PATH=/bin:/usr/bin:/usr/local/bin
+cat >> ./build.sh <<END
 
+export _PYTHON_PROJECT_SRC=${PYDROID}
+export _PYTHON_PROJECT_BASE=$(pwd)
+
+PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 CONFIG_SITE=config.site \\
  CFLAGS="$CFLAGS" \\
- \${PYDROID}/configure --with-libs='-lz -lm' --with-openssl=${SSL} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
+ \${_PYTHON_PROJECT_SRC}/configure --with-libs='-lz -lm' --with-openssl=${SSL} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
 
 if [ -f Makefile ]
 then
@@ -449,8 +462,6 @@ END
 
     env -i sh build.sh
 
-
-fi
 
     break
 done
