@@ -1,5 +1,5 @@
---- cpython-3.7.5rc1/Modules/_localemodule.c	2019-10-01 19:23:17.000000000 +0200
-+++ cpython-3.7.5rc1.android/Modules/_localemodule.c	2019-10-06 21:09:19.504695954 +0200
+--- python3/Modules/_localemodule.c	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Modules/_localemodule.c	2019-10-09 04:41:00.267482217 +0200
 @@ -96,6 +96,10 @@
          PyErr_SetString(Error, "invalid locale category");
          return NULL;

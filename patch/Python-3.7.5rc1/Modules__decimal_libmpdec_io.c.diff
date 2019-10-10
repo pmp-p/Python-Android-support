@@ -1,0 +1,12 @@
+--- python3/Modules/_decimal/libmpdec/io.c	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Modules/_decimal/libmpdec/io.c	2019-10-09 04:41:00.267482217 +0200
+@@ -871,6 +871,9 @@
+         if (*spec->sep) {
+             return 0;
+         }
++#if __ANDROID__ && (__ANDROID_API__ < 21)
++#warning "======================================UNTESTED================================"
++#endif
+         spec->type = *cp++;
+         spec->type = (spec->type == 'N') ? 'G' : 'g';
+         lc = localeconv();

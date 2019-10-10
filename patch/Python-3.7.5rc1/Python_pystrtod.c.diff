@@ -1,5 +1,5 @@
---- cpython-3.7.5rc1/Python/pystrtod.c	2019-10-01 19:23:17.000000000 +0200
-+++ cpython-3.7.5rc1.android/Python/pystrtod.c	2019-10-06 21:09:19.524695296 +0200
+--- python3/Python/pystrtod.c	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Python/pystrtod.c	2019-10-09 04:41:00.291481469 +0200
 @@ -176,9 +176,14 @@
      assert(nptr != NULL);
  

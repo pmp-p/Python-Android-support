@@ -1,5 +1,5 @@
---- cpython-3.7.5rc1/Python/formatter_unicode.c	2019-10-01 19:23:17.000000000 +0200
-+++ cpython-3.7.5rc1.android/Python/formatter_unicode.c	2019-10-06 22:09:35.237168890 +0200
+--- python3/Python/formatter_unicode.c	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Python/formatter_unicode.c	2019-10-09 04:41:00.287481593 +0200
 @@ -689,6 +689,10 @@
  
  static const char no_grouping[1] = {CHAR_MAX};

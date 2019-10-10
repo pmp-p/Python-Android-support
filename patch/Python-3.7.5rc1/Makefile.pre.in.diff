@@ -1,5 +1,5 @@
---- cpython-3.7.5rc1/Makefile.pre.in	2019-10-01 19:23:17.000000000 +0200
-+++ cpython-3.7.5rc1.android/Makefile.pre.in	2019-10-06 21:09:19.504695954 +0200
+--- python3/Makefile.pre.in	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Makefile.pre.in	2019-10-09 04:41:00.263482342 +0200
 @@ -226,7 +226,7 @@
  PY3LIBRARY=     @PY3LIBRARY@
  DLLLIBRARY=	@DLLLIBRARY@
