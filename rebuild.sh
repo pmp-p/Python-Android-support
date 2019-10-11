@@ -4,7 +4,10 @@ export HOST_TAG=linux-x86_64
 
 export PYMAJOR=3
 export PYMINOR=7
+export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
+
 export PYVER=3.7.5rc1
+
 PYTHON3_HASH=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
 
 #OPENSSL_VERSION="1.1.1d"
@@ -237,12 +240,12 @@ cd ${ROOT}
 
 
 Building () {
-    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
+    cd ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
 
     echo " * configure target==$1 ${PLATFORM_TRIPLET}"
 
-    mkdir -p $1-${TARGET_ARCH_ABI}
-    cd $1-${TARGET_ARCH_ABI}
+    mkdir -p $1-${ANDROID_NDK_ABI_NAME}
+    cd $1-${ANDROID_NDK_ABI_NAME}
     /bin/cp -aRfxp ${BUILD}/$1-prefix/src/$1/. ./
 
 }
@@ -250,17 +253,19 @@ Building () {
 
 
 
-for TARGET_ARCH_ABI in armeabi-v7a arm64-v8a x86 x86-64
+for ANDROID_NDK_ABI_NAME in armeabi-v7a arm64-v8a x86 x86_64
 do
     unset NDK_PREFIX
-    export PREBUILT=${ROOT}/prebuilt-${TARGET_ARCH_ABI}
+
 
     export TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG
 
-    mkdir -p ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
-    cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
+    mkdir -p ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
+    cd ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
 
-    case "$TARGET_ARCH_ABI" in
+    TARGET_ARCH_ABI=$ANDROID_NDK_ABI_NAME
+
+    case "$ANDROID_NDK_ABI_NAME" in
         armeabi-v7a)
             PLATFORM_TRIPLET=armv7a-linux-androideabi
             API=19
@@ -277,12 +282,15 @@ do
             API=19
             BITS=32
             ;;
-        x86-64)
+        x86_64)
             PLATFORM_TRIPLET=x86_64-linux-android
             API=21
             BITS=64
             ;;
     esac
+
+    export PREBUILT=${ROOT}/prebuilt-${ANDROID_NDK_ABI_NAME}
+
 
     export CC=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang
     export CXX=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang++
@@ -309,7 +317,9 @@ do
 
     # that env file can be handy for debugging compile failures.
 
-    cat > $ROOT/${TARGET_ARCH_ABI}.sh <<END
+
+
+    cat > $ROOT/${ANDROID_NDK_ABI_NAME}.sh <<END
 #!/bin/sh
 export STRIP=$STRIP
 export READELF=$READELF
@@ -328,68 +338,91 @@ END
 
     if [ -f ${PREBUILT}/lib/libbz2.a ]
     then
-        echo "    -> libbz2 already built for $ABI"
+        echo "    -> libbz2 already built for $ANDROID_NDK_ABI_NAME"
     else
         Building bz2
 
+        unset CFLAGS
         make CC=$CC AR=$AR RANLIB=$RANLIB PREFIX=${PREBUILT} bzip2 install
+        unset CFLAGS
+
     fi
 
 
 
     # == building libffi
 
-    if [ -f ${PREBUILT}/lib/libffi.a ]
+    if [ -f ${PREBUILT}/lib/libffi.so ]
     then
-        echo "    -> libffi already built for $ABI"
+        echo "    -> libffi already built for $ANDROID_NDK_ABI_NAME"
     else
         Building libffi
 
-        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -funwind-tables -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
-        #env |grep TRIPLE
-        #read cont
+        # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance
+        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+
         if ./configure --target=${PLATFORM_TRIPLET} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} && make && make install
         then
             echo "done"
         else
             break
         fi
-    fi
 
+        unset CFLAGS
+    fi
 
     # == building openssl
 
     # poc https://github.com/ph4r05/android-openssl
 
-    if [ -f  ${PREBUILT}/lib/libssl.a ]
+    if [ -f  ${PREBUILT}/lib/libsslpython.so ]
     then
-        echo "    -> openssl-${OPENSSL_VERSION} already built for $ABI"
+        echo "    -> openssl-${OPENSSL_VERSION} already built for $ANDROID_NDK_ABI_NAME"
     else
         Building openssl
         unset CFLAGS
         # no-ssl2 no-ssl3 no-comp
         CROSS_COMPILE="" ./Configure android shared no-hw --prefix=${PREBUILT} && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make install
         ln -sf . lib
+
+
+        # == fix android libraries are not version numbered
+
+        chmod u+w ${PREBUILT}/lib/lib*.so
+
+        if [ -L ${PREBUILT}/lib/libssl.so ]
+        then
+            rm ${PREBUILT}/lib/libssl.so
+            mv ${PREBUILT}/lib/libssl.so.1.0.0 ${PREBUILT}/lib/libsslpython.so
+            patchelf --set-soname libsslpython.so ${PREBUILT}/lib/libsslpython.so
+            patchelf --replace-needed libcrypto.so.1.0.0 libcryptopython.so ${PREBUILT}/lib/libsslpython.so
+        fi
+
+        if [ -L ${PREBUILT}/lib/libcrypto.so ]
+        then
+            rm ${PREBUILT}/lib/libcrypto.so
+            mv ${PREBUILT}/lib/libcrypto.so.1.0.0 ${PREBUILT}/lib/libcryptopython.so
+            patchelf --set-soname libcryptopython.so ${PREBUILT}/lib/libcryptopython.so
+        fi
+
     fi
-
-    #export SSL=${BUILD_PREFIX}-${TARGET_ARCH_ABI}/openssl-${TARGET_ARCH_ABI}
-
-
-
 
     # == building cpython
 
 
-    if [ -f ${PREBUILT}/lib/libpython${PYMAJOR}.${PYMINOR}.a ]
+    if [ -f ${PREBUILT}/lib/$LIBPYTHON ]
     then
 
-        echo "    -> python3 already built for $ABI"
+        echo "    -> python3 already built for $ANDROID_NDK_ABI_NAME"
 
     else
-        cd ${BUILD_PREFIX}-${TARGET_ARCH_ABI}
 
-        mkdir -p python3-${TARGET_ARCH_ABI}
-        cd python3-${TARGET_ARCH_ABI}
+        echo " * configure target==python $PLATFORM_TRIPLET"
+
+        cd ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
+
+        mkdir -p python3-${ANDROID_NDK_ABI_NAME}
+        cd python3-${ANDROID_NDK_ABI_NAME}
 
         _PYTHON_PROJECT_SRC=${PYDROID}
         _PYTHON_PROJECT_BASE=$(pwd)
@@ -422,24 +455,29 @@ mkdir -p Modules
 cat <<END > Modules/Setup.local
 *static*
 
-_struct _struct.c   # binary structure packing/unpacking
-_sre _sre.c             # Fredrik Lundh's new regular expressions
+#_struct _struct.c   # binary structure packing/unpacking
+#cmath cmathmodule.c _math.c # -lm # complex math library functions
+#math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
+#_weakref _weakref.c
+#_codecs _codecsmodule.c         # access to the builtin codecs and codec registry
+#_weakref _weakref.c         # weak references
+#_functools _functoolsmodule.c   # Tools for working with functions and callable objects
+#_operator _operator.c   # operator.add() and similar goodies
+#itertools itertoolsmodule.c    # Functions creating iterators for efficient looping
+#time timemodule.c # -lm # time operations and variables
+#_sre _sre.c             # Fredrik Lundh's new regular expressions
+#_collections _collectionsmodule.c # Container types
+
 _datetime _datetimemodule.c # datetime accelerator
-_codecs _codecsmodule.c         # access to the builtin codecs and codec registry
-_weakref _weakref.c         # weak references
 
 array arraymodule.c # array objects
-cmath cmathmodule.c _math.c # -lm # complex math library functions
-math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
 _contextvars _contextvarsmodule.c
-_struct _struct.c   # binary structure packing/unpacking
-_weakref _weakref.c
-time timemodule.c # -lm # time operations and variables
-_operator _operator.c   # operator.add() and similar goodies
+
+
 _random _randommodule.c # Random number generator
-_collections _collectionsmodule.c # Container types
-_functools _functoolsmodule.c   # Tools for working with functions and callable objects
-itertools itertoolsmodule.c    # Functions creating iterators for efficient looping
+
+
+
 _bisect _bisectmodule.c # Bisection algorithms
 _json _json.c
 binascii binascii.c
@@ -465,9 +503,9 @@ _posixsubprocess _posixsubprocess.c  # POSIX subprocess module helper
 
 _socket socketmodule.c
 
-_bz2 _bz2module.c -I$PREBUILT/include $PREBUILT/lib/libbz2.a
+_bz2 _bz2module.c -I$PREBUILT/include -L$PREBUILT/lib -lbz2 # $PREBUILT/lib/libbz2.a
 
-_ssl _ssl.c -DUSE_SSL -I${PREBUILT}/include ${PREBUILT}/lib/libssl.a ${PREBUILT}/lib/libcrypto.a
+_ssl _ssl.c -DUSE_SSL -I${PREBUILT}/include -L$PREBUILT/lib -lsslpython -lcryptopython #${PREBUILT}/lib/libssl.a ${PREBUILT}/lib/libcrypto.a
 
 _elementtree -I${PYDROID}/Modules/expat -DHAVE_EXPAT_CONFIG_H -DUSE_PYEXPAT_CAPI _elementtree.c # elementtree accelerator
 
@@ -475,7 +513,7 @@ _ctypes _ctypes/_ctypes.c \
  _ctypes/callbacks.c \
  _ctypes/callproc.c \
  _ctypes/stgdict.c \
- _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I$PREBUILT/include $PREBUILT/lib/libffi.a
+ _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I$PREBUILT/include -L$PREBUILT/lib -lffi # $PREBUILT/lib/libffi.a
 
 _decimal _decimal/_decimal.c \
  _decimal/libmpdec/basearith.c \
@@ -496,20 +534,17 @@ _decimal _decimal/_decimal.c \
 
 END
 
-        echo " * configure target==python $PLATFORM_TRIPLET"
 
-
-        PYOPTS="--without-gcc --disable-ipv6 --without-ensurepip --with-c-locale-coercion --without-pymalloc --disable-shared --with-computed-gotos"
+        PYOPTS="--without-gcc --disable-ipv6 --without-ensurepip --with-c-locale-coercion --without-pymalloc --enable-shared --with-computed-gotos"
 
         [ -f Makefile ] && make clean && rm Makefile
 
         #cp -vf $PYSRC/python $PYDROID/host_python
+        # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
 
-        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -funwind-tables -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
-
-
-        cp $ROOT/${TARGET_ARCH_ABI}.sh ./build.sh
+        cp $ROOT/${ANDROID_NDK_ABI_NAME}.sh ./build.sh
 
         cat >> ./build.sh <<END
 
@@ -520,13 +555,13 @@ PKG_CONFIG_PATH=${PREBUILT}/lib/pkgconfig \\
 PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 CONFIG_SITE=config.site \\
  CFLAGS="$CFLAGS" \\
- \${_PYTHON_PROJECT_SRC}/configure --with-libs='-lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
+ \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
 
 if [ -f Makefile ]
 then
     TERM=linux reset
     > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
-    make install
+    make libpython3.so libinstall inclinstall
 else
     echo ================== ${BUILD}/build.log ===================
     tail -n 30 ${BUILD}/build.log
@@ -535,14 +570,30 @@ else
 fi
 END
 
-        # need a very clean env for true reproducibility
+        # == need a very clean env for true reproducibility
 
         env -i sh build.sh
 
+        unset CFLAGS
+
+        chmod u+w ${PREBUILT}/lib/lib*.so
+
+
+        # == fix dynamic linking with static modules
+
+        #$PYTHON ${ORIGIN}/patch/Python-${PYVER}/pyfix.ld.py
+        /bin/cp -vf $LIBPYTHON ${PREBUILT}/lib/
+
+        if [ -f ${PREBUILT}/lib/$LIBPYTHON ]
+        then
+            echo " done"
+        else
+            break
+        fi
     fi
 
-    #break
-done
 
+
+done
 
 
