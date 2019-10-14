@@ -2,6 +2,12 @@
 export HOST_TRIPLET=x86_64-linux-gnu
 export HOST_TAG=linux-x86_64
 
+export ANDROID_HOME=${ANDROID_HOME:-$(pwd)/android-sdk}
+export NDK_HOME=${NDK_HOME:-${ANDROID_HOME}/ndk-bundle}
+export DN=org.beeware
+export APP=small
+
+
 export PYMAJOR=3
 export PYMINOR=7
 export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
@@ -18,6 +24,8 @@ OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
 
 LIBFFI_HASH=403d67aabf1c05157855ea2b1d9950263fb6316536c8c333f5b9ab1eb2f20ecf
 BZ2_HASH=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+
+PATCHELF_HASH=b3cb6bdedcef5607ce34a350cf0b182eb979f8f7bc31eae55a93a70a3f020d13
 
 # above are the defaults, can be overridden via CONFIG
 
@@ -36,19 +44,22 @@ else
     OPENSSL_URL="https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
     BZ2_URL="https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
     PYTHON3_URL="https://github.com/python/cpython/archive/v${PYVER}.tar.gz"
+    PATCHELF_URL="https://github.com/NixOS/patchelf/archive/0.10.tar.gz"
 fi
-
-
-export NDK_HOME=${NDK_HOME:-$(pwd)/android-sdk/ndk-bundle}
-export DN=org.beeware
-export APP=small
 
 
 if grep "^Pkg.Revision = 20" $NDK_HOME/source.properties
 then
-    echo NDK found
+    echo NDK 20+ found
 else
-    echo Only NDK 20 has been tested and is expected to be found in NDK_HOME=$NDK_HOME
+    echo "
+WARNING:
+
+Only NDK 20 has been tested and is expected to be found in :
+   NDK_HOME=$NDK_HOME or ANDROID_HOME=${ANDROID_HOME} + ndk-bundle
+
+press enter to continue anyway
+"
     read cont
 fi
 
@@ -56,11 +67,14 @@ OLD_PATH=$PATH
 
 ORIGIN=$(pwd)
 ROOT="${ORIGIN}/beeware"
+HOST="${ORIGIN}/beeware/host"
 BUILD_PREFIX="${ROOT}/build"
-BUILD=${BUILD_PREFIX}-src
+BUILD_SRC=${ROOT}/src
 
-PYSRC="${BUILD}/python3-prefix/src/python3"
-export PYDROID="${BUILD}/python3-android"
+
+PYSRC="${BUILD_SRC}/python3-prefix/src/python3"
+PATCHELF_SRC="${BUILD_SRC}/patchelf-prefix/src/patchelf"
+export PYDROID="${BUILD_SRC}/python3-android"
 
 export APK=/data/data/${DN}.${APP}
 
@@ -92,12 +106,12 @@ fi
 
 cd ${ROOT}
 
-mkdir -p ${BUILD}
+mkdir -p ${BUILD_SRC}
 
-date > ${BUILD}/build.log
-env >> ${BUILD}/build.log
-echo  >> ${BUILD}/build.log
-echo  >> ${BUILD}/build.log
+date > ${BUILD_SRC}/build.log
+env >> ${BUILD_SRC}/build.log
+echo  >> ${BUILD_SRC}/build.log
+echo  >> ${BUILD_SRC}/build.log
 
 
 if [ -f new_env ]
@@ -157,6 +171,17 @@ project(beeware)
 include(ExternalProject)
 
 ExternalProject_Add(
+    patchelf
+    URL ${PATCHELF_URL}
+    URL_HASH SHA256=${PATCHELF_HASH}
+    PATCH_COMMAND "./bootstrap.sh"
+    CONFIGURE_COMMAND sh -c "cd ${PATCHELF_SRC} && ./configure --prefix=${HOST}"
+    BUILD_COMMAND sh -c "cd ${PATCHELF_SRC} && make"
+    INSTALL_COMMAND sh -c "cd ${PATCHELF_SRC} && make install"
+)
+
+
+ExternalProject_Add(
     bz2
     URL ${BZ2_URL}
     URL_HASH SHA256=${BZ2_HASH}
@@ -168,6 +193,7 @@ ExternalProject_Add(
 
 ExternalProject_Add(
     openssl
+    DEPENDS patchelf
     URL ${OPENSSL_URL}
     URL_HASH SHA256=${OPENSSL_HASH}
 
@@ -200,7 +226,7 @@ ExternalProject_Add(
 
     PATCH_COMMAND sh -c "/bin/cp -aRfxp ${PYSRC} ${PYDROID}"
 
-    CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${ROOT}/python3.host --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
+    CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${HOST} --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
 
     BUILD_COMMAND sh -c "cd ${PYSRC} && make"
 
@@ -210,12 +236,12 @@ ExternalProject_Add(
 
 END
 
-    cd ${BUILD}
+    cd ${BUILD_SRC}
     cmake ..
     make && make install
 
 fi
-
+break
 
 
 # == can't save space - patching an existing source tree after a cleanup - because we may need a full sourcetree+host python too
@@ -246,7 +272,7 @@ Building () {
 
     mkdir -p $1-${ANDROID_NDK_ABI_NAME}
     cd $1-${ANDROID_NDK_ABI_NAME}
-    /bin/cp -aRfxp ${BUILD}/$1-prefix/src/$1/. ./
+    /bin/cp -aRfxp ${BUILD_SRC}/$1-prefix/src/$1/. ./
 
 }
 
@@ -312,7 +338,7 @@ do
     export STRIP=$TOOLCHAIN/bin/${NDK_PREFIX}-strip
 
     # eventually restore full PLATFORM_TRIPLET
-    export PLATFORM_TRIPLET=$BUILD_TYPE
+    export PLATFORM_TRIPLET=${BUILD_TYPE}
 
 
     # that env file can be handy for debugging compile failures.
@@ -394,15 +420,15 @@ END
         then
             rm ${PREBUILT}/lib/libssl.so
             mv ${PREBUILT}/lib/libssl.so.1.0.0 ${PREBUILT}/lib/libsslpython.so
-            patchelf --set-soname libsslpython.so ${PREBUILT}/lib/libsslpython.so
-            patchelf --replace-needed libcrypto.so.1.0.0 libcryptopython.so ${PREBUILT}/lib/libsslpython.so
+            ${HOST}/bin/patchelf --set-soname libsslpython.so ${PREBUILT}/lib/libsslpython.so
+            ${HOST}/bin/patchelf --replace-needed libcrypto.so.1.0.0 libcryptopython.so ${PREBUILT}/lib/libsslpython.so
         fi
 
         if [ -L ${PREBUILT}/lib/libcrypto.so ]
         then
             rm ${PREBUILT}/lib/libcrypto.so
             mv ${PREBUILT}/lib/libcrypto.so.1.0.0 ${PREBUILT}/lib/libcryptopython.so
-            patchelf --set-soname libcryptopython.so ${PREBUILT}/lib/libcryptopython.so
+            ${HOST}/bin/patchelf --set-soname libcryptopython.so ${PREBUILT}/lib/libcryptopython.so
         fi
 
     fi
@@ -535,7 +561,7 @@ _decimal _decimal/_decimal.c \
 END
 
 
-        PYOPTS="--without-gcc --disable-ipv6 --without-ensurepip --with-c-locale-coercion --without-pymalloc --enable-shared --with-computed-gotos"
+        PYOPTS="--without-gcc --without-pymalloc --with-pydebug=no --disable-ipv6 --without-ensurepip --with-c-locale-coercion --enable-shared --with-computed-gotos"
 
         [ -f Makefile ] && make clean && rm Makefile
 
@@ -555,16 +581,17 @@ PKG_CONFIG_PATH=${PREBUILT}/lib/pkgconfig \\
 PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 CONFIG_SITE=config.site \\
  CFLAGS="$CFLAGS" \\
- \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD}/build.log
+ \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
 
 if [ -f Makefile ]
 then
     TERM=linux reset
     > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
-    make libpython3.so libinstall inclinstall
+    #make libpython3.so libinstall inclinstall
+    make install
 else
-    echo ================== ${BUILD}/build.log ===================
-    tail -n 30 ${BUILD}/build.log
+    echo ================== ${BUILD_SRC}/build.log ===================
+    tail -n 30 ${BUILD_SRC}/build.log
     echo "Configuration failed for $PLATFORM_TRIPLET"
     env
 fi
@@ -576,23 +603,18 @@ END
 
         unset CFLAGS
 
-        chmod u+w ${PREBUILT}/lib/lib*.so
-
-
-        # == fix dynamic linking with static modules
-
-        #$PYTHON ${ORIGIN}/patch/Python-${PYVER}/pyfix.ld.py
-        /bin/cp -vf $LIBPYTHON ${PREBUILT}/lib/
-
-        if [ -f ${PREBUILT}/lib/$LIBPYTHON ]
+        if [ -f ${PREBUILT}/lib/${LIBPYTHON} ]
         then
+
+            # == this will fix most ndk link problems and get rid of (IMPORTED_NO_SONAME ON) req with cmake
+            chmod u+w ${PREBUILT}/lib/lib*.so
+
+            ${HOST}/bin/patchelf --set-soname ${LIBPYTHON} ${PREBUILT}/lib/${LIBPYTHON}
             echo " done"
         else
             break
         fi
     fi
-
-
 
 done
 
