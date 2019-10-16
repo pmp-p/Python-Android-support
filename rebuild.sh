@@ -12,9 +12,11 @@ export PYMAJOR=3
 export PYMINOR=7
 export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
 
-export PYVER=3.7.5rc1
+#export PYVER=3.7.5rc1
+#PYTHON3_HASH=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
 
-PYTHON3_HASH=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
+export PYVER=3.7.5
+PYTHON3_HASH=349ac7b4a9d399302542163fdf5496e1c9d1e5d876a4de771eec5acde76a1f8a
 
 #OPENSSL_VERSION="1.1.1d"
 #OPENSSL_HASH=1e3a91bc1f9dfce01af26026f856e064eab4c8ee0a8f457b5ae30b40b8b711f2
@@ -74,6 +76,8 @@ BUILD_SRC=${ROOT}/src
 
 PYSRC="${BUILD_SRC}/python3-prefix/src/python3"
 PATCHELF_SRC="${BUILD_SRC}/patchelf-prefix/src/patchelf"
+ADBFS_SRC="${BUILD_SRC}/adbfs-prefix/src/adbfs"
+
 export PYDROID="${BUILD_SRC}/python3-android"
 
 export APK=/data/data/${DN}.${APP}
@@ -178,6 +182,18 @@ ExternalProject_Add(
     CONFIGURE_COMMAND sh -c "cd ${PATCHELF_SRC} && ./configure --prefix=${HOST}"
     BUILD_COMMAND sh -c "cd ${PATCHELF_SRC} && make"
     INSTALL_COMMAND sh -c "cd ${PATCHELF_SRC} && make install"
+)
+
+
+# license BSD https://github.com/spion/adbfs-rootless/blob/master/license
+
+ExternalProject_Add(
+    adbfs
+    GIT_REPOSITORY https://github.com/spion/adbfs-rootless.git
+    GIT_TAG ba64c22dbd373499eea9c9a9d2a9dd1cd25c33e1 # 14 july 2019
+    CONFIGURE_COMMAND sh -c "mkdir -p ${HOST}/bin"
+    BUILD_COMMAND sh -c "cd ${ADBFS_SRC} && make"
+    INSTALL_COMMAND sh -c "cd ${ADBFS_SRC} && cp -vf adbfs ${HOST}/bin/"
 )
 
 
@@ -453,8 +469,8 @@ END
         _PYTHON_PROJECT_SRC=${PYDROID}
         _PYTHON_PROJECT_BASE=$(pwd)
 
-    #for arm: ac_cv_mixed_endian_double=yes
-    # ac_cv_little_endian_double=yes
+#for arm: ac_cv_mixed_endian_double=yes
+# ac_cv_little_endian_double=yes
 
         cat >config.site <<END
 ac_cv_little_endian_double=yes
@@ -481,9 +497,13 @@ mkdir -p Modules
 cat <<END > Modules/Setup.local
 *static*
 
-#_struct _struct.c   # binary structure packing/unpacking
-#cmath cmathmodule.c _math.c # -lm # complex math library functions
-#math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
+_struct _struct.c   # binary structure packing/unpacking
+_queue _queuemodule.c
+parser parsermodule.c
+
+math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
+cmath cmathmodule.c  # -lm # complex math library functions
+
 #_weakref _weakref.c
 #_codecs _codecsmodule.c         # access to the builtin codecs and codec registry
 #_weakref _weakref.c         # weak references
@@ -531,6 +551,7 @@ _socket socketmodule.c
 
 _bz2 _bz2module.c -I$PREBUILT/include -L$PREBUILT/lib -lbz2 # $PREBUILT/lib/libbz2.a
 
+_hashlib _hashopenssl.c -I${PREBUILT}/include -L$PREBUILT/lib -lsslpython -lcryptopython
 _ssl _ssl.c -DUSE_SSL -I${PREBUILT}/include -L$PREBUILT/lib -lsslpython -lcryptopython #${PREBUILT}/lib/libssl.a ${PREBUILT}/lib/libcrypto.a
 
 _elementtree -I${PYDROID}/Modules/expat -DHAVE_EXPAT_CONFIG_H -DUSE_PYEXPAT_CAPI _elementtree.c # elementtree accelerator
@@ -565,10 +586,11 @@ END
 
         [ -f Makefile ] && make clean && rm Makefile
 
-        #cp -vf $PYSRC/python $PYDROID/host_python
-        # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
+#cp -vf $PYSRC/python $PYDROID/host_python
 
-        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+# NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
+
+        export CFLAGS="-m${BITS} -fPIC -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
         cp $ROOT/${ANDROID_NDK_ABI_NAME}.sh ./build.sh
 
