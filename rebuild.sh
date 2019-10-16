@@ -174,6 +174,8 @@ project(beeware)
 
 include(ExternalProject)
 
+set(_downloadOptions SHOW_PROGRESS)
+
 ExternalProject_Add(
     patchelf
     URL ${PATCHELF_URL}
@@ -310,22 +312,26 @@ do
     case "$ANDROID_NDK_ABI_NAME" in
         armeabi-v7a)
             PLATFORM_TRIPLET=armv7a-linux-androideabi
+            ARCH=armv7a
             API=19
             BITS=32
             export NDK_PREFIX="arm-linux-androideabi"
             ;;
         arm64-v8a)
             PLATFORM_TRIPLET=aarch64-linux-android
+            ARCH=aarch64
             API=21
             BITS=64
             ;;
         x86)
             PLATFORM_TRIPLET=i686-linux-android
+            ARCH=i686
             API=19
             BITS=32
             ;;
         x86_64)
             PLATFORM_TRIPLET=x86_64-linux-android
+            ARCH=x86_64
             API=21
             BITS=64
             ;;
@@ -400,8 +406,8 @@ END
     else
         Building libffi
 
-        # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance
-        export CFLAGS="-m${BITS} -fPIC -Wno-multichar -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+        # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
+        export CFLAGS="-m${BITS} -fPIC -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
         if ./configure --target=${PLATFORM_TRIPLET} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} && make && make install
         then
@@ -611,6 +617,8 @@ then
     > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
     #make libpython3.so libinstall inclinstall
     make install
+    /bin/cp -vf ${PREBUILT}/lib/python3.7/_sysconfigdata__linux_${ARCH}-linux-androideabi.py ${PREBUILT}/lib/python3.7/_sysconfigdata__android_${ARCH}-linux-androideabi.py
+
 else
     echo ================== ${BUILD_SRC}/build.log ===================
     tail -n 30 ${BUILD_SRC}/build.log
