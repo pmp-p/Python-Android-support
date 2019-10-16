@@ -1,5 +1,5 @@
 --- python3/Python/fileutils.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Python/fileutils.c	2019-10-15 20:26:57.975305969 +0200
++++ python3-android/Python/fileutils.c	2019-10-16 08:06:45.994903151 +0200
 @@ -32,6 +32,16 @@
  int _Py_open_cloexec_works = -1;
  #endif
