@@ -1,5 +1,5 @@
---- python3/setup.py	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/setup.py	2019-10-16 08:06:45.998903022 +0200
+--- python3/setup.py	2019-10-15 00:32:36.000000000 +0200
++++ python3-android/setup.py	2019-10-18 03:28:45.228399854 +0200
 @@ -774,7 +774,7 @@
          # pwd(3)
          exts.append( Extension('pwd', ['pwdmodule.c']) )

@@ -1,5 +1,5 @@
---- python3/Modules/posixmodule.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Modules/posixmodule.c	2019-10-16 08:06:45.986903411 +0200
+--- python3/Modules/posixmodule.c	2019-10-15 00:32:36.000000000 +0200
++++ python3-android/Modules/posixmodule.c	2019-10-18 04:06:50.216906601 +0200
 @@ -51,7 +51,6 @@
  disguised Unix interface).  Refer to the library manual and\n\
  corresponding Unix manual entries for more information on calls.");
@@ -8,7 +8,16 @@
  #ifdef HAVE_SYS_UIO_H
  #include <sys/uio.h>
  #endif
-@@ -481,6 +480,11 @@
+@@ -242,6 +241,8 @@
+ #ifdef HAVE_LSTAT
+ extern int lstat(const char *, struct stat *);
+ #endif /* HAVE_LSTAT */
++#else
++#warning "unistd"
+ #endif /* !HAVE_UNISTD_H */
+ 
+ #endif /* !_MSC_VER */
+@@ -481,6 +482,11 @@
  #endif
  }
  
@@ -20,7 +29,7 @@
  
  #ifdef MS_WINDOWS
  /* defined in fileutils.c */
-@@ -5935,6 +5939,51 @@
+@@ -5935,6 +5941,51 @@
  for both the master and slave ends.
  [clinic start generated code]*/
  
@@ -72,7 +81,7 @@
  static PyObject *
  os_openpty_impl(PyObject *module)
  /*[clinic end generated code: output=98841ce5ec9cef3c input=f3d99fd99e762907]*/
-@@ -6023,7 +6072,7 @@
+@@ -6023,7 +6074,7 @@
      return NULL;
  }
  #endif /* defined(HAVE_OPENPTY) || defined(HAVE__GETPTY) || defined(HAVE_DEV_PTMX) */
@@ -81,7 +90,7 @@
  
  #ifdef HAVE_FORKPTY
  /*[clinic input]
-@@ -9081,7 +9130,11 @@
+@@ -9081,7 +9132,11 @@
              errno = result;
      }
  #else

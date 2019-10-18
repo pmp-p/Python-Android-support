@@ -9,25 +9,33 @@ export APP=small
 
 
 export PYMAJOR=3
-export PYMINOR=7
+
+if true
+then
+    export PYMINOR=7
+    export PYVER=3.${PYMINOR}.5
+    PYTHON3_HASH=349ac7b4a9d399302542163fdf5496e1c9d1e5d876a4de771eec5acde76a1f8a
+
+    export OPENSSL_VERSION="1.0.2t"
+    OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
+else
+    export PYMINOR=8
+    export PYVER=3.8.0
+    PYTHON3_HASH=fc00204447b553c2dd7495929411f567cc480be00c49b11a14aee7ea18750981
+
+    export OPENSSL_VERSION="1.1.1d"
+    OPENSSL_HASH=1e3a91bc1f9dfce01af26026f856e064eab4c8ee0a8f457b5ae30b40b8b711f2
+fi
+
 export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
 
-#export PYVER=3.7.5rc1
-#PYTHON3_HASH=6b9707901204a2ab87236a03e3ec5d060318cb988df6307f4468d307b17948e5
 
-export PYVER=3.7.5
-PYTHON3_HASH=349ac7b4a9d399302542163fdf5496e1c9d1e5d876a4de771eec5acde76a1f8a
-
-#OPENSSL_VERSION="1.1.1d"
-#OPENSSL_HASH=1e3a91bc1f9dfce01af26026f856e064eab4c8ee0a8f457b5ae30b40b8b711f2
-
-export OPENSSL_VERSION="1.0.2t"
-OPENSSL_HASH=14cb464efe7ac6b54799b34456bd69558a749a4931ecfd9cf9f71d7881cac7bc
 
 LIBFFI_HASH=403d67aabf1c05157855ea2b1d9950263fb6316536c8c333f5b9ab1eb2f20ecf
 BZ2_HASH=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
-
 PATCHELF_HASH=b3cb6bdedcef5607ce34a350cf0b182eb979f8f7bc31eae55a93a70a3f020d13
+
+
 
 # above are the defaults, can be overridden via CONFIG
 
@@ -86,9 +94,9 @@ export PYTHONDONTWRITEBYTECODE=1
 
 for py in 8 7 6 5
 do
-    if which python3.${py}
+    if command -v python3.${py}
     then
-        export PYTHON=$(which python3.${py})
+        export PYTHON=$(command -v python3.${py})
         break
     fi
 done
@@ -128,34 +136,13 @@ then
             rm new_env
         fi
     fi
-    # == create a skeleton for a minimal application with a gradle build system.
-
-    # apk will live in /data/data/$DN.$APP on device
-
-
-    mkdir $DN.$APP/src/main -p
-cat > $DN.$APP/src/main/AndroidManifest.xml  <<END
-    <?xml version="1.0" encoding="utf-8"?>
-    <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-        package="$DN.$APP">
-        <application android:label="Minimal">
-            <activity android:name="MainActivity">
-                <intent-filter>
-                    <action android:name="android.intent.action.MAIN" />
-                    <category android:name="android.intent.category.LAUNCHER" />
-                </intent-filter>
-            </activity>
-        </application>
-    </manifest>
-END
 
 fi
 
 
 
-
-
-# == create a fake cmake project for the purpose of downloading sources and building host python
+# == create a fake cmake project for the purpose of downloading sources
+# == and building host python, patchelf and adbfs
 
 
 cd "${ROOT}"
@@ -262,7 +249,10 @@ fi
 break
 
 
-# == can't save space - patching an existing source tree after a cleanup - because we may need a full sourcetree+host python too
+# == can't save space here with patching an existing source tree after a cleanup
+# == because we may need a full sourcetree+host python too for some complex libs (eg Panda3D )
+
+
 cd ${PYDROID}
 
 if [ -f Patched ]
@@ -309,10 +299,14 @@ do
 
     TARGET_ARCH_ABI=$ANDROID_NDK_ABI_NAME
 
+    # except for armv7
+    ABI=android
+
     case "$ANDROID_NDK_ABI_NAME" in
         armeabi-v7a)
             PLATFORM_TRIPLET=armv7a-linux-androideabi
             ARCH=armv7a
+            ABI=androideabi
             API=19
             BITS=32
             export NDK_PREFIX="arm-linux-androideabi"
@@ -359,13 +353,13 @@ do
     export RANLIB=$TOOLCHAIN/bin/${NDK_PREFIX}-ranlib
     export STRIP=$TOOLCHAIN/bin/${NDK_PREFIX}-strip
 
-    # eventually restore full PLATFORM_TRIPLET
+    # == eventually restore full PLATFORM_TRIPLET
+
     export PLATFORM_TRIPLET=${BUILD_TYPE}
 
 
-    # that env file can be handy for debugging compile failures.
 
-
+    # == that env file can be handy for debugging compile failures.
 
     cat > $ROOT/${ANDROID_NDK_ABI_NAME}.sh <<END
 #!/bin/sh
@@ -592,24 +586,28 @@ END
 
         [ -f Makefile ] && make clean && rm Makefile
 
-#cp -vf $PYSRC/python $PYDROID/host_python
 
 # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
 
-        export CFLAGS="-m${BITS} -fPIC -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+        export CFLAGS="-m${BITS} -D__USE_GNU -fPIC -target ${PLATFORM_TRIPLET}${API} -include ${ORIGIN}/patch/ndk_api19/ndk_fix.h -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
         cp $ROOT/${ANDROID_NDK_ABI_NAME}.sh ./build.sh
+
+
+        # == prepare the cross configure + build file for cpython
 
         cat >> ./build.sh <<END
 
 export _PYTHON_PROJECT_SRC=${PYDROID}
 export _PYTHON_PROJECT_BASE=$(pwd)
 
+$CXX -shared -fPIC -Wl,-soname,libbrokenlocale.so -o $PREBUILT/lib/libbrokenlocale.so ${ORIGIN}/patch/ndk_api19/brokenlocale.cpp
+
 PKG_CONFIG_PATH=${PREBUILT}/lib/pkgconfig \\
 PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 CONFIG_SITE=config.site \\
  CFLAGS="$CFLAGS" \\
- \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
+ \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -L$PREBUILT/lib -lbrokenlocale -lstdc++ -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
 
 if [ -f Makefile ]
 then
@@ -617,8 +615,7 @@ then
     > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
     #make libpython3.so libinstall inclinstall
     make install
-    /bin/cp -vf ${PREBUILT}/lib/python3.7/_sysconfigdata__linux_${ARCH}-linux-androideabi.py ${PREBUILT}/lib/python3.7/_sysconfigdata__android_${ARCH}-linux-androideabi.py
-
+    /bin/cp -vf ${PREBUILT}/lib/python3.7/_sysconfigdata__linux_${ARCH}-linux-${ABI}.py ${PREBUILT}/lib/python${PYMAJOR}.${PYMINOR}/_sysconfigdata__android_${ARCH}-linux-${ABI}.py
 else
     echo ================== ${BUILD_SRC}/build.log ===================
     tail -n 30 ${BUILD_SRC}/build.log
@@ -636,8 +633,12 @@ END
         if [ -f ${PREBUILT}/lib/${LIBPYTHON} ]
         then
 
-            # == this will fix most ndk link problems and get rid of (IMPORTED_NO_SONAME ON) req with cmake
+            # == default rights would prevent patching.
+
             chmod u+w ${PREBUILT}/lib/lib*.so
+
+            # == this will fix most ndk link problems
+            # == also get rid of unfriendly (IMPORTED_NO_SONAME ON) requirement with cmake
 
             ${HOST}/bin/patchelf --set-soname ${LIBPYTHON} ${PREBUILT}/lib/${LIBPYTHON}
             echo " done"

@@ -1,5 +1,5 @@
---- python3/Modules/timemodule.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Modules/timemodule.c	2019-10-16 08:06:45.990903281 +0200
+--- python3/Modules/timemodule.c	2019-10-15 00:32:36.000000000 +0200
++++ python3-android/Modules/timemodule.c	2019-10-18 18:10:21.903282154 +0200
 @@ -494,6 +494,7 @@
  }
  
@@ -16,3 +16,47 @@
  
  PyDoc_STRVAR(gmtime_doc,
  "gmtime([seconds]) -> (tm_year, tm_mon, tm_mday, tm_hour, tm_min,\n\
+@@ -698,6 +700,35 @@
+ #define time_strlen strlen
+ #endif
+ 
++#if defined(__ANDROID_API__) && __ANDROID_API__ < 20
++static PyObject *
++time_strftime(PyObject *self, PyObject *args)
++{
++    struct tm buf;
++    char result[1024];
++    memset((void *) &buf, '\0', sizeof(buf));
++    time_t tt;
++    PyObject *format_arg;
++
++    PyObject *tup = NULL;
++    if (!PyArg_ParseTuple(args, "U|O:strftime", &format_arg, &tup))
++        return NULL;
++
++    if (tup == NULL) {
++        tt = time(NULL);
++        if (_PyTime_localtime(tt, &buf) != 0)
++            return NULL;
++    }
++    else if (!gettmarg(tup, &buf,
++                       "iiiiiiiii;strftime(): illegal time tuple argument") ||
++             !checktm(&buf))
++    {
++        return NULL;
++    }
++    strftime(result, sizeof(result), _PyUnicode_AsString(format_arg), &buf);
++    return PyUnicode_FromStringAndSize(result, strlen(result) );
++}
++#else
+ static PyObject *
+ time_strftime(PyObject *self, PyObject *args)
+ {
+@@ -847,6 +878,7 @@
+ #endif
+     return ret;
+ }
++#endif // __ANDROID_API__
+ 
+ #undef time_char
+ #undef format_time
