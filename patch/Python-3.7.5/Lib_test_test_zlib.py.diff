@@ -1,5 +1,5 @@
 --- python3/Lib/test/test_zlib.py	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Lib/test/test_zlib.py	2019-10-18 17:30:56.015714015 +0200
++++ python3-android/Lib/test/test_zlib.py	2019-10-19 06:47:31.285700939 +0200
 @@ -437,7 +437,14 @@
          sync_opt = ['Z_NO_FLUSH', 'Z_SYNC_FLUSH', 'Z_FULL_FLUSH',
                      'Z_PARTIAL_FLUSH']

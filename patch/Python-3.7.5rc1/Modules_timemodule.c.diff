@@ -1,5 +1,5 @@
 --- python3/Modules/timemodule.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Modules/timemodule.c	2019-10-15 20:26:57.971306113 +0200
++++ python3-android/Modules/timemodule.c	2019-10-16 23:35:42.041322587 +0200
 @@ -494,6 +494,7 @@
  }
  

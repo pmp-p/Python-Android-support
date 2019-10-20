@@ -1,5 +1,5 @@
 --- python3/Objects/obmalloc.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Objects/obmalloc.c	2019-10-18 03:28:45.224399879 +0200
++++ python3-android/Objects/obmalloc.c	2019-10-19 06:47:31.305700409 +0200
 @@ -2,6 +2,11 @@
  
  #include <stdbool.h>

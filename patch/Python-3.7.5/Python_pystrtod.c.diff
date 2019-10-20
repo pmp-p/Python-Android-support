@@ -1,5 +1,5 @@
 --- python3/Python/pystrtod.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Python/pystrtod.c	2019-10-18 18:17:18.323028358 +0200
++++ python3-android/Python/pystrtod.c	2019-10-19 06:47:31.309700304 +0200
 @@ -177,8 +177,14 @@
  
      fail_pos = NULL;

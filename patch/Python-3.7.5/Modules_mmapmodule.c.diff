@@ -1,5 +1,5 @@
 --- python3/Modules/mmapmodule.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Modules/mmapmodule.c	2019-10-18 03:28:45.216399927 +0200
++++ python3-android/Modules/mmapmodule.c	2019-10-19 06:47:31.293700727 +0200
 @@ -79,6 +79,12 @@
  #  define MAP_ANONYMOUS MAP_ANON
  #endif

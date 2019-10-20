@@ -1,5 +1,5 @@
 --- python3/Python/getplatform.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Python/getplatform.c	2019-10-15 20:26:57.979305823 +0200
++++ python3-android/Python/getplatform.c	2019-10-16 23:35:42.049322393 +0200
 @@ -1,8 +1,10 @@
  
  #include "Python.h"

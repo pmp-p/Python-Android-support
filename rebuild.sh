@@ -34,6 +34,7 @@ export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
 LIBFFI_HASH=403d67aabf1c05157855ea2b1d9950263fb6316536c8c333f5b9ab1eb2f20ecf
 BZ2_HASH=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 PATCHELF_HASH=b3cb6bdedcef5607ce34a350cf0b182eb979f8f7bc31eae55a93a70a3f020d13
+LZMA_HASH=3313fd2a95f43d88e44264e6b015e7d03053e681860b0d5d3f9baca79c57b7bf
 
 
 
@@ -55,6 +56,7 @@ else
     BZ2_URL="https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
     PYTHON3_URL="https://github.com/python/cpython/archive/v${PYVER}.tar.gz"
     PATCHELF_URL="https://github.com/NixOS/patchelf/archive/0.10.tar.gz"
+    LZMA_URL="https://tukaani.org/xz/xz-5.2.4.tar.bz2"
 fi
 
 
@@ -85,6 +87,7 @@ BUILD_SRC=${ROOT}/src
 PYSRC="${BUILD_SRC}/python3-prefix/src/python3"
 PATCHELF_SRC="${BUILD_SRC}/patchelf-prefix/src/patchelf"
 ADBFS_SRC="${BUILD_SRC}/adbfs-prefix/src/adbfs"
+LZMA_SRC="${BUILD_SRC}/lzma-prefix/src/lzma"
 
 export PYDROID="${BUILD_SRC}/python3-android"
 
@@ -185,7 +188,6 @@ ExternalProject_Add(
     INSTALL_COMMAND sh -c "cd ${ADBFS_SRC} && cp -vf adbfs ${HOST}/bin/"
 )
 
-
 ExternalProject_Add(
     bz2
     URL ${BZ2_URL}
@@ -195,6 +197,17 @@ ExternalProject_Add(
     BUILD_COMMAND ""
     INSTALL_COMMAND ""
 )
+
+ExternalProject_Add(
+    lzma
+    URL ${LZMA_URL}
+    URL_HASH SHA256=${LZMA_HASH}
+
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    INSTALL_COMMAND ""
+)
+
 
 ExternalProject_Add(
     openssl
@@ -223,6 +236,7 @@ ExternalProject_Add(
     DEPENDS openssl
     DEPENDS libffi
     DEPENDS bz2
+    DEPENDS lzma
     #GIT_REPOSITORY https://github.com/python/cpython.git
     #GIT_TAG 4082f600a5bd69c8f4a36111fa5eb197d7547756 # 3.7.5rc1
 
@@ -294,6 +308,7 @@ do
 
     export TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG
 
+
     mkdir -p ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
     cd ${BUILD_PREFIX}-${ANDROID_NDK_ABI_NAME}
 
@@ -331,7 +346,11 @@ do
             ;;
     esac
 
-    export PREBUILT=${ROOT}/prebuilt-${ANDROID_NDK_ABI_NAME}
+    export APKUSR=${ROOT}/apkroot-${ANDROID_NDK_ABI_NAME}/usr
+
+    export DISPOSE=${ROOT}/apkroot-${ANDROID_NDK_ABI_NAME}-discard
+
+    mkdir -p ${APKUSR} ${DISPOSE}
 
 
     export CC=$TOOLCHAIN/bin/${PLATFORM_TRIPLET}${API}-clang
@@ -378,23 +397,41 @@ END
 
     # == building bzip2
 
-    if [ -f ${PREBUILT}/lib/libbz2.a ]
+    if [ -f ${APKUSR}/lib/libbz2.a ]
     then
         echo "    -> libbz2 already built for $ANDROID_NDK_ABI_NAME"
     else
         Building bz2
 
         unset CFLAGS
-        make CC=$CC AR=$AR RANLIB=$RANLIB PREFIX=${PREBUILT} bzip2 install
+        make CC=$CC AR=$AR RANLIB=$RANLIB PREFIX=${APKUSR} bzip2 install
         unset CFLAGS
 
     fi
 
+    # == building xz liblzma
+
+    if [ -f ${APKUSR}/lib/liblzma.a ]
+    then
+        echo "    -> liblzma already built for $ANDROID_NDK_ABI_NAME"
+    else
+        Building lzma
+
+        export CFLAGS="-m${BITS} -fPIC -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
+        if ./configure --target=${PLATFORM_TRIPLET} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${APKUSR} && make && make install
+        then
+            echo done
+        else
+            break
+        fi
+
+        unset CFLAGS
+    fi
 
 
     # == building libffi
 
-    if [ -f ${PREBUILT}/lib/libffi.so ]
+    if [ -f ${APKUSR}/lib/libffi.so ]
     then
         echo "    -> libffi already built for $ANDROID_NDK_ABI_NAME"
     else
@@ -403,7 +440,7 @@ END
         # NDK also defines -ffunction-sections -funwind-tables but they result in worse OpenCV performance (Amos Wenger)
         export CFLAGS="-m${BITS} -fPIC -target ${PLATFORM_TRIPLET}${API} -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
-        if ./configure --target=${PLATFORM_TRIPLET} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} && make && make install
+        if ./configure --target=${PLATFORM_TRIPLET} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${APKUSR} && make && make install
         then
             echo "done"
         else
@@ -417,34 +454,34 @@ END
 
     # poc https://github.com/ph4r05/android-openssl
 
-    if [ -f  ${PREBUILT}/lib/libsslpython.so ]
+    if [ -f  ${APKUSR}/lib/libsslpython.so ]
     then
         echo "    -> openssl-${OPENSSL_VERSION} already built for $ANDROID_NDK_ABI_NAME"
     else
         Building openssl
         unset CFLAGS
         # no-ssl2 no-ssl3 no-comp
-        CROSS_COMPILE="" ./Configure android shared no-hw --prefix=${PREBUILT} && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make install
+        CROSS_COMPILE="" ./Configure android shared no-hw --prefix=${APKUSR} && CROSS_COMPILE="" make depend && CROSS_COMPILE="" make install
         ln -sf . lib
 
 
         # == fix android libraries are not version numbered
 
-        chmod u+w ${PREBUILT}/lib/lib*.so
+        chmod u+w ${APKUSR}/lib/lib*.so
 
-        if [ -L ${PREBUILT}/lib/libssl.so ]
+        if [ -L ${APKUSR}/lib/libssl.so ]
         then
-            rm ${PREBUILT}/lib/libssl.so
-            mv ${PREBUILT}/lib/libssl.so.1.0.0 ${PREBUILT}/lib/libsslpython.so
-            ${HOST}/bin/patchelf --set-soname libsslpython.so ${PREBUILT}/lib/libsslpython.so
-            ${HOST}/bin/patchelf --replace-needed libcrypto.so.1.0.0 libcryptopython.so ${PREBUILT}/lib/libsslpython.so
+            rm ${APKUSR}/lib/libssl.so
+            mv ${APKUSR}/lib/libssl.so.1.0.0 ${APKUSR}/lib/libsslpython.so
+            ${HOST}/bin/patchelf --set-soname libsslpython.so ${APKUSR}/lib/libsslpython.so
+            ${HOST}/bin/patchelf --replace-needed libcrypto.so.1.0.0 libcryptopython.so ${APKUSR}/lib/libsslpython.so
         fi
 
-        if [ -L ${PREBUILT}/lib/libcrypto.so ]
+        if [ -L ${APKUSR}/lib/libcrypto.so ]
         then
-            rm ${PREBUILT}/lib/libcrypto.so
-            mv ${PREBUILT}/lib/libcrypto.so.1.0.0 ${PREBUILT}/lib/libcryptopython.so
-            ${HOST}/bin/patchelf --set-soname libcryptopython.so ${PREBUILT}/lib/libcryptopython.so
+            rm ${APKUSR}/lib/libcrypto.so
+            mv ${APKUSR}/lib/libcrypto.so.1.0.0 ${APKUSR}/lib/libcryptopython.so
+            ${HOST}/bin/patchelf --set-soname libcryptopython.so ${APKUSR}/lib/libcryptopython.so
         fi
 
     fi
@@ -452,7 +489,14 @@ END
     # == building cpython
 
 
-    if [ -f ${PREBUILT}/lib/$LIBPYTHON ]
+    # prebuilt/<arch>/ is the final place for libpython
+    # but prefix is set to <apk>/usr
+    # because a lot of python <prefix>/lib/* can't go in apk private <apk>/lib folder on device
+
+    # in case of on board sdk it may be usefull to keep the <apk>/usr full tree
+    # with the static libs without conflicting with that "apk root" lib folder
+
+    if [ -f ${APKUSR}/lib/$LIBPYTHON ]
     then
 
         echo "    -> python3 already built for $ANDROID_NDK_ABI_NAME"
@@ -491,6 +535,8 @@ ac_cv_func_getgrouplist=no
 
 ac_cv_header_uuid_h=no
 ac_cv_header_uuid_uuid_h=no
+
+ac_cv_func_wcsftime=no
 END
 
 mkdir -p Modules
@@ -549,10 +595,12 @@ _posixsubprocess _posixsubprocess.c  # POSIX subprocess module helper
 
 _socket socketmodule.c
 
-_bz2 _bz2module.c -I$PREBUILT/include -L$PREBUILT/lib -lbz2 # $PREBUILT/lib/libbz2.a
+_lzma _lzmamodule.c -I${APKUSR}/include -L${APKUSR}/lib -llzma # ${APKUSR}/lib/liblzma.a
 
-_hashlib _hashopenssl.c -I${PREBUILT}/include -L$PREBUILT/lib -lsslpython -lcryptopython
-_ssl _ssl.c -DUSE_SSL -I${PREBUILT}/include -L$PREBUILT/lib -lsslpython -lcryptopython #${PREBUILT}/lib/libssl.a ${PREBUILT}/lib/libcrypto.a
+_bz2 _bz2module.c -I${APKUSR}/include -L${APKUSR}/lib -lbz2 # ${APKUSR}/lib/libbz2.a
+
+_hashlib _hashopenssl.c -I${APKUSR}/include -L${APKUSR}/lib -lsslpython -lcryptopython
+_ssl _ssl.c -DUSE_SSL -I${APKUSR}/include -L${APKUSR}/lib -lsslpython -lcryptopython #${APKUSR}/lib/libssl.a ${APKUSR}/lib/libcrypto.a
 
 _elementtree -I${PYDROID}/Modules/expat -DHAVE_EXPAT_CONFIG_H -DUSE_PYEXPAT_CAPI _elementtree.c # elementtree accelerator
 
@@ -560,7 +608,7 @@ _ctypes _ctypes/_ctypes.c \
  _ctypes/callbacks.c \
  _ctypes/callproc.c \
  _ctypes/stgdict.c \
- _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I$PREBUILT/include -L$PREBUILT/lib -lffi # $PREBUILT/lib/libffi.a
+ _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I${APKUSR}/include -L${APKUSR}/lib -lffi # ${APKUSR}/lib/libffi.a
 
 _decimal _decimal/_decimal.c \
  _decimal/libmpdec/basearith.c \
@@ -594,20 +642,33 @@ END
         cp $ROOT/${ANDROID_NDK_ABI_NAME}.sh ./build.sh
 
 
+
+        export PYLIB=${APKUSR}/lib/python${PYMAJOR}.${PYMINOR}
+
+        # == layout a specific folder that will merge all platforms specifics.
+
+        export PYASSETS=${ORIGIN}/assets/python${PYMAJOR}.${PYMINOR}
+
+        mkdir -p ${PYASSETS}
+
         # == prepare the cross configure + build file for cpython
+
 
         cat >> ./build.sh <<END
 
 export _PYTHON_PROJECT_SRC=${PYDROID}
 export _PYTHON_PROJECT_BASE=$(pwd)
+export PYTHONDONTWRITEBYTECODE=1
 
-$CXX -shared -fPIC -Wl,-soname,libbrokenlocale.so -o $PREBUILT/lib/libbrokenlocale.so ${ORIGIN}/patch/ndk_api19/brokenlocale.cpp
+$CXX -shared -fPIC -Wl,-soname,libbrokenlocale.so -o ${APKUSR}/lib/libbrokenlocale.so ${ORIGIN}/patch/ndk_api19/brokenlocale.cpp
 
-PKG_CONFIG_PATH=${PREBUILT}/lib/pkgconfig \\
+PKG_CONFIG_PATH=${APKUSR}/lib/pkgconfig \\
 PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
 CONFIG_SITE=config.site \\
  CFLAGS="$CFLAGS" \\
- \${_PYTHON_PROJECT_SRC}/configure --with-libs='$PREBUILT/lib/libbz2.a -L$PREBUILT/lib -lbrokenlocale -lstdc++ -lz -lm' --with-openssl=${PREBUILT} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${PREBUILT} $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
+ \${_PYTHON_PROJECT_SRC}/configure --with-libs='${APKUSR}/lib/libbz2.a ${APKUSR}/lib/liblzma.a -L${APKUSR}/lib -lbrokenlocale -lstdc++ -lz -lm' \\
+ --with-openssl=${APKUSR} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${APKUSR} \\
+ $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
 
 if [ -f Makefile ]
 then
@@ -615,7 +676,8 @@ then
     > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
     #make libpython3.so libinstall inclinstall
     make install
-    /bin/cp -vf ${PREBUILT}/lib/python3.7/_sysconfigdata__linux_${ARCH}-linux-${ABI}.py ${PREBUILT}/lib/python${PYMAJOR}.${PYMINOR}/_sysconfigdata__android_${ARCH}-linux-${ABI}.py
+
+    mv -vf ${PYLIB}/_sysconfigdata__linux_${ARCH}-linux-${ABI}.py ${PYASSETS}/_sysconfigdata__android_${ARCH}-linux-${ABI}.py
 else
     echo ================== ${BUILD_SRC}/build.log ===================
     tail -n 30 ${BUILD_SRC}/build.log
@@ -630,17 +692,57 @@ END
 
         unset CFLAGS
 
-        if [ -f ${PREBUILT}/lib/${LIBPYTHON} ]
+
+        # == cleanup a bit, as PYTHONDONTWRITEBYTECODE respect may not be perfect
+
+        echo " * cleanup pycache folders"
+
+        rm -rf $(find ${_PYTHON_PROJECT_SRC}/Lib/ -type d|grep __pycache__$)
+        rm -rf $(find ${PYLIB}/ -type d|grep __pycache__$)
+
+
+        # we could just want to keep lib-dynload later
+        # sysconfig has already been moved.
+
+        # idea : keep testsuite support on cdn ?
+        MOVE_TO_USR="site-packages lib-dynload test unittest lib2to3 contextlib.py argparse.py"
+
+        echo " * move files not suitable for zipimport usage"
+
+        for move in $MOVE_TO_USR
+        do
+            mv -vf ${PYLIB}/${move} ${DISPOSE}/
+        done
+
+        #mv -vf ${PYLIB} ${DISPOSE}/  ?Directory not empty?
+        rm -rf ${PYLIB}
+
+        mkdir -p ${PYLIB}
+
+        # those cannot be loaded from the apk zip archive while running testsuite
+        # could also be optionnal in most use cases.
+        for move in $MOVE_TO_USR
+        do
+            mv -vf ${DISPOSE}/${move} ${PYLIB}/
+        done
+
+        echo " * move final libs to prebuilt folder"
+
+        if [ -f ${APKUSR}/lib/${LIBPYTHON} ]
         then
 
             # == default rights would prevent patching.
 
-            chmod u+w ${PREBUILT}/lib/lib*.so
+            chmod u+w ${APKUSR}/lib/lib*.so
+
 
             # == this will fix most ndk link problems
             # == also get rid of unfriendly (IMPORTED_NO_SONAME ON) requirement with cmake
 
-            ${HOST}/bin/patchelf --set-soname ${LIBPYTHON} ${PREBUILT}/lib/${LIBPYTHON}
+            ${HOST}/bin/patchelf --set-soname ${LIBPYTHON} ${APKUSR}/lib/${LIBPYTHON}
+
+            mkdir -p ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}
+            mv ${APKUSR}/lib/lib*.so ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}/
             echo " done"
         else
             break

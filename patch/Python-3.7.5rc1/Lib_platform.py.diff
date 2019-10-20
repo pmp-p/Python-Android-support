@@ -1,5 +1,5 @@
---- python3/Lib/platform.py	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Lib/platform.py	2019-10-19 06:47:31.281701044 +0200
+--- python3/Lib/platform.py	2019-10-01 19:23:17.000000000 +0200
++++ python3-android/Lib/platform.py	2019-10-17 01:46:04.213517000 +0200
 @@ -188,6 +188,9 @@
          The file is read and scanned in chunks of chunksize bytes.
  

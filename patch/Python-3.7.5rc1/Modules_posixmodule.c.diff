@@ -1,5 +1,5 @@
 --- python3/Modules/posixmodule.c	2019-10-01 19:23:17.000000000 +0200
-+++ python3-android/Modules/posixmodule.c	2019-10-15 20:26:57.967306259 +0200
++++ python3-android/Modules/posixmodule.c	2019-10-16 23:35:42.037322684 +0200
 @@ -51,7 +51,6 @@
  disguised Unix interface).  Refer to the library manual and\n\
  corresponding Unix manual entries for more information on calls.");
