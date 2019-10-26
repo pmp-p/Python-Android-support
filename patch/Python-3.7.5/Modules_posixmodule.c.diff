@@ -1,5 +1,5 @@
 --- python3/Modules/posixmodule.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Modules/posixmodule.c	2019-10-19 06:47:31.297700621 +0200
++++ python3-android/Modules/posixmodule.c	2019-10-23 18:14:08.007612541 +0200
 @@ -51,7 +51,6 @@
  disguised Unix interface).  Refer to the library manual and\n\
  corresponding Unix manual entries for more information on calls.");
@@ -23,7 +23,7 @@
  
 +//PMPP API<21
 +#if __ANDROID_API__ < 21
-+    extern ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
++    //extern ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 +#endif
 +//PMPP API<21
  

@@ -1,5 +1,5 @@
 --- python3/Modules/signalmodule.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Modules/signalmodule.c	2019-10-19 06:47:31.301700516 +0200
++++ python3-android/Modules/signalmodule.c	2019-10-23 18:14:08.011612412 +0200
 @@ -40,6 +40,13 @@
  #define SIG_ERR ((PyOS_sighandler_t)(-1))
  #endif

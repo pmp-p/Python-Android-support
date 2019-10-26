@@ -1,5 +1,5 @@
 --- python3/Modules/_localemodule.c	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Modules/_localemodule.c	2019-10-19 06:47:31.289700832 +0200
++++ python3-android/Modules/_localemodule.c	2019-10-24 06:59:22.950333489 +0200
 @@ -96,6 +96,10 @@
          PyErr_SetString(Error, "invalid locale category");
          return NULL;
@@ -17,7 +17,7 @@
      /* if LC_NUMERIC is different in the C library, use saved value */
 -    l = localeconv();
 +//PMPP API<21
-+#if __ANDROID_API__ < 21
++#if __ANDROID__ && (__ANDROID_API__ < 21)
 +    /* Don't even try on Android's broken locale.h. */
 +    /* maybe can use c++ stdlib to implement */
 +     l = broken_localeconv();

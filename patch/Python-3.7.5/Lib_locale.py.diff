@@ -1,5 +1,5 @@
 --- python3/Lib/locale.py	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/Lib/locale.py	2019-10-20 07:43:24.707449316 +0200
++++ python3-android/Lib/locale.py	2019-10-23 18:14:07.991613058 +0200
 @@ -46,6 +46,10 @@
  
      from _locale import *

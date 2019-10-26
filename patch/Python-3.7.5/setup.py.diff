@@ -1,5 +1,5 @@
 --- python3/setup.py	2019-10-15 00:32:36.000000000 +0200
-+++ python3-android/setup.py	2019-10-19 06:47:31.313700198 +0200
++++ python3-android/setup.py	2019-10-23 18:14:08.023612024 +0200
 @@ -774,7 +774,7 @@
          # pwd(3)
          exts.append( Extension('pwd', ['pwdmodule.c']) )
@@ -72,7 +72,33 @@
  
          # Helper module for various ascii-encoders.  Uses zlib for an optimized
          # crc32 if we have it.  Otherwise binascii uses its own.
-@@ -1669,17 +1644,8 @@
+@@ -1498,23 +1473,10 @@
+                                extra_link_args = extra_link_args) )
+ 
+         # Gustavo Niemeyer's bz2 module.
+-        if (self.compiler.find_library_file(lib_dirs, 'bz2')):
+-            if host_platform == "darwin":
+-                bz2_extra_link_args = ('-Wl,-search_paths_first',)
+-            else:
+-                bz2_extra_link_args = ()
+-            exts.append( Extension('_bz2', ['_bz2module.c'],
+-                                   libraries = ['bz2'],
+-                                   extra_link_args = bz2_extra_link_args) )
+-        else:
+-            missing.append('_bz2')
++        exts.append( Extension('_bz2', ['_bz2module.c'], libraries = ['bz2'], extra_link_args = [f"-L{os.environ['APKUSR']}/lib",f"-I{os.environ['APKUSR']}/include"]) )
+ 
+         # LZMA compression support.
+-        if self.compiler.find_library_file(lib_dirs, 'lzma'):
+-            exts.append( Extension('_lzma', ['_lzmamodule.c'],
+-                                   libraries = ['lzma']) )
+-        else:
+-            missing.append('_lzma')
++        exts.append( Extension('_lzma', ['_lzmamodule.c'], libraries = ['lzma'], extra_link_args = [f"-L{os.environ['APKUSR']}/lib",f"-I{os.environ['APKUSR']}/include"]) )
+ 
+         # Interface to the Expat XML parser
+         #
+@@ -1669,17 +1631,8 @@
              missing.append('_tkinter')
  
          # Build the _uuid module if possible

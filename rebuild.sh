@@ -1,12 +1,14 @@
 #!/bin/sh
 export HOST_TRIPLET=x86_64-linux-gnu
 export HOST_TAG=linux-x86_64
+export ENV=beeware
+
+export ARCHITECTURES="armeabi-v7a arm64-v8a x86 x86_64"
+
 
 export ANDROID_HOME=${ANDROID_HOME:-$(pwd)/android-sdk}
 export NDK_HOME=${NDK_HOME:-${ANDROID_HOME}/ndk-bundle}
 export DN=org.beeware
-export APP=small
-
 
 export PYMAJOR=3
 
@@ -30,13 +32,11 @@ fi
 export LIBPYTHON=libpython${PYMAJOR}.${PYMINOR}.so
 
 
-
 LIBFFI_HASH=403d67aabf1c05157855ea2b1d9950263fb6316536c8c333f5b9ab1eb2f20ecf
 BZ2_HASH=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 PATCHELF_HASH=b3cb6bdedcef5607ce34a350cf0b182eb979f8f7bc31eae55a93a70a3f020d13
 LZMA_HASH=3313fd2a95f43d88e44264e6b015e7d03053e681860b0d5d3f9baca79c57b7bf
-
-
+SQLITE_HASH=8c5a50db089bd2a1b08dbc5b00d2027602ca7ff238ba7658fabca454d4298e60
 
 # above are the defaults, can be overridden via CONFIG
 
@@ -57,6 +57,7 @@ else
     PYTHON3_URL="https://github.com/python/cpython/archive/v${PYVER}.tar.gz"
     PATCHELF_URL="https://github.com/NixOS/patchelf/archive/0.10.tar.gz"
     LZMA_URL="https://tukaani.org/xz/xz-5.2.4.tar.bz2"
+    SQLITE_URL="https://www.sqlite.org/2019/sqlite-autoconf-3300100.tar.gz"
 fi
 
 
@@ -78,8 +79,8 @@ fi
 OLD_PATH=$PATH
 
 ORIGIN=$(pwd)
-ROOT="${ORIGIN}/beeware"
-HOST="${ORIGIN}/beeware/host"
+ROOT="${ORIGIN}/${ENV}"
+HOST="${ORIGIN}/${ENV}/host"
 BUILD_PREFIX="${ROOT}/build"
 BUILD_SRC=${ROOT}/src
 
@@ -105,17 +106,16 @@ do
 done
 
 
-if [ -d beeware ]
+if [ -d ${ENV} ]
 then
     echo " * using previous build dir ${ROOT}"
-    cd ${ROOT}
-
 else
     echo " * create venv ${ROOT}"
-    $PYTHON -m venv beeware --prompt beeware-python-build
-    cd ${ROOT}
-    touch new_env
+    $PYTHON -m venv --prompt pydk-${ENV} ${ENV}
+    touch ${ENV}/new_env
 fi
+
+cd ${ROOT}
 
 . bin/activate
 
@@ -128,6 +128,7 @@ env >> ${BUILD_SRC}/build.log
 echo  >> ${BUILD_SRC}/build.log
 echo  >> ${BUILD_SRC}/build.log
 
+pip install --upgrade pip
 
 if [ -f new_env ]
 then
@@ -139,8 +140,11 @@ then
             rm new_env
         fi
     fi
-
 fi
+
+
+
+
 
 
 
@@ -150,6 +154,8 @@ fi
 
 cd "${ROOT}"
 
+# because libpython is shared
+export LD_LIBRARY_PATH=${HOST}/lib:$LD_LIBRARY_PATH
 
 if [ -f CMakeLists.txt ]
 then
@@ -160,7 +166,7 @@ cat > CMakeLists.txt <<END
 
 cmake_minimum_required(VERSION 3.10.2)
 
-project(beeware)
+project(${ENV})
 
 include(ExternalProject)
 
@@ -245,11 +251,14 @@ ExternalProject_Add(
 
     PATCH_COMMAND sh -c "/bin/cp -aRfxp ${PYSRC} ${PYDROID}"
 
-    CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${HOST} --with-cxx-main=clang --disable-ipv6 --without-ensurepip --with-c-locale-coercion --disable-shared >/dev/null"
+    #CONFIGURE_COMMAND ""
+    CONFIGURE_COMMAND sh -c "cd ${PYSRC} && CC=clang ./configure --prefix=${HOST} --with-cxx-main=clang $PYOPTS >/dev/null"
 
     BUILD_COMMAND sh -c "cd ${PYSRC} && make"
+    #BUILD_COMMAND ""
 
     INSTALL_COMMAND sh -c "cd ${PYSRC} && make install >/dev/null 2>&1"
+    #INSTALL_COMMAND ""
 )
 
 
@@ -260,12 +269,14 @@ END
     make && make install
 
 fi
-break
+
 
 
 # == can't save space here with patching an existing source tree after a cleanup
 # == because we may need a full sourcetree+host python too for some complex libs (eg Panda3D )
 
+
+. ${ORIGIN}/patch/Python-${PYVER}.config
 
 cd ${PYDROID}
 
@@ -281,9 +292,42 @@ else
     touch Patched
     #echo "All patches applied, press enter"
     #read cont
+    > /Lib/compileall.py
+
+    #remove the binary blobs
+    rm -f ./Python/importlib.h ./Python/importlib_external.h
 fi
 
+# TODO: what about this one ? without regen importlib is actually a binary blob !
+# make regen-importlib
+if [ -f ./Python/importlib_external.h ]
+then
+    echo
+    echo "  ***********************************************************************"
+    echo "  **    warning : you have binary blobs in your python source tree     **"
+    echo "  ***********************************************************************"
+    echo
+else
+    echo " - regenerating imporlib binary blobs -"
+
+    #make it closer to target parameters
+    python_ac_cv_patch config.site
+    echo "CONFIG_SITE=config.site CC=clang ./configure --prefix=${HOST} --with-cxx-main=clang $PYOPTS" > build.sh
+    chmod +x build.sh
+
+    if ./build.sh >/dev/null
+    then
+        cat >> pyconfig.h << END
+#ifdef HAVE_CRYPT_H
+#undef HAVE_CRYPT_H
+#endif
+END
+        make regen-importlib
+        make clean
+    fi
+fi
 cd ${ROOT}
+
 
 
 
@@ -300,8 +344,7 @@ Building () {
 
 
 
-
-for ANDROID_NDK_ABI_NAME in armeabi-v7a arm64-v8a x86 x86_64
+for ANDROID_NDK_ABI_NAME in $ARCHITECTURES
 do
     unset NDK_PREFIX
 
@@ -513,124 +556,15 @@ END
         _PYTHON_PROJECT_SRC=${PYDROID}
         _PYTHON_PROJECT_BASE=$(pwd)
 
-#for arm: ac_cv_mixed_endian_double=yes
-# ac_cv_little_endian_double=yes
+        # defined in ${ORIGIN}/patch/Python-${PYVER}.config
 
-        cat >config.site <<END
-ac_cv_little_endian_double=yes
-ac_cv_file__dev_ptmx=yes
-ac_cv_file__dev_ptc=no
+        python_ac_cv_patch config.site
 
+        mkdir -p Modules
 
-ac_cv_func_pwrite=no
-ac_cv_func_pwritev=no
-ac_cv_func_pwritev2=no
+        python_module_setup_local Modules/Setup.local
 
 
-ac_cv_lib_util_forkpty=no
-
-ac_cv_func_getspnam=no
-ac_cv_func_getspent=no
-ac_cv_func_getgrouplist=no
-
-ac_cv_header_uuid_h=no
-ac_cv_header_uuid_uuid_h=no
-
-ac_cv_func_wcsftime=no
-END
-
-mkdir -p Modules
-cat <<END > Modules/Setup.local
-*static*
-
-_struct _struct.c   # binary structure packing/unpacking
-_queue _queuemodule.c
-parser parsermodule.c
-
-math mathmodule.c _math.c # -lm # math library functions, e.g. sin()
-cmath cmathmodule.c  # -lm # complex math library functions
-
-#_weakref _weakref.c
-#_codecs _codecsmodule.c         # access to the builtin codecs and codec registry
-#_weakref _weakref.c         # weak references
-#_functools _functoolsmodule.c   # Tools for working with functions and callable objects
-#_operator _operator.c   # operator.add() and similar goodies
-#itertools itertoolsmodule.c    # Functions creating iterators for efficient looping
-#time timemodule.c # -lm # time operations and variables
-#_sre _sre.c             # Fredrik Lundh's new regular expressions
-#_collections _collectionsmodule.c # Container types
-
-_datetime _datetimemodule.c # datetime accelerator
-
-array arraymodule.c # array objects
-_contextvars _contextvarsmodule.c
-
-
-_random _randommodule.c # Random number generator
-
-
-
-_bisect _bisectmodule.c # Bisection algorithms
-_json _json.c
-binascii binascii.c
-#asyncio req
-select selectmodule.c
-fcntl fcntlmodule.c
-_sha1 sha1module.c
-_sha256 sha256module.c
-_sha512 sha512module.c
-_md5 md5module.c
-#
-termios termios.c
-_sha3 _sha3/sha3module.c
-_blake2 _blake2/blake2module.c _blake2/blake2b_impl.c _blake2/blake2s_impl.c
-#aiohttp
-unicodedata unicodedata.c
-zlib zlibmodule.c -DUSE_ZLIB_CRC32 -lz
-#future_builtins future_builtins.c
-
-_heapq _heapqmodule.c   # Heap queue algorithm
-_pickle _pickle.c   # pickle accelerator
-_posixsubprocess _posixsubprocess.c  # POSIX subprocess module helper
-
-_socket socketmodule.c
-
-_lzma _lzmamodule.c -I${APKUSR}/include -L${APKUSR}/lib -llzma # ${APKUSR}/lib/liblzma.a
-
-_bz2 _bz2module.c -I${APKUSR}/include -L${APKUSR}/lib -lbz2 # ${APKUSR}/lib/libbz2.a
-
-_hashlib _hashopenssl.c -I${APKUSR}/include -L${APKUSR}/lib -lsslpython -lcryptopython
-_ssl _ssl.c -DUSE_SSL -I${APKUSR}/include -L${APKUSR}/lib -lsslpython -lcryptopython #${APKUSR}/lib/libssl.a ${APKUSR}/lib/libcrypto.a
-
-_elementtree -I${PYDROID}/Modules/expat -DHAVE_EXPAT_CONFIG_H -DUSE_PYEXPAT_CAPI _elementtree.c # elementtree accelerator
-
-_ctypes _ctypes/_ctypes.c \
- _ctypes/callbacks.c \
- _ctypes/callproc.c \
- _ctypes/stgdict.c \
- _ctypes/cfield.c -I${PYDROID}/Modules/_ctypes -I${APKUSR}/include -L${APKUSR}/lib -lffi # ${APKUSR}/lib/libffi.a
-
-_decimal _decimal/_decimal.c \
- _decimal/libmpdec/basearith.c \
- _decimal/libmpdec/constants.c \
- _decimal/libmpdec/context.c \
- _decimal/libmpdec/convolute.c \
- _decimal/libmpdec/crt.c \
- _decimal/libmpdec/difradix2.c \
- _decimal/libmpdec/fnt.c \
- _decimal/libmpdec/fourstep.c \
- _decimal/libmpdec/io.c \
- _decimal/libmpdec/memory.c \
- _decimal/libmpdec/mpdecimal.c \
- _decimal/libmpdec/numbertheory.c \
- _decimal/libmpdec/sixstep.c \
- _decimal/libmpdec/transpose.c \
- -DCONFIG_${BITS} -DANSI -I${PYDROID}/Modules/_decimal/libmpdec
-
-END
-
-
-        PYOPTS="--without-gcc --without-pymalloc --with-pydebug=no --disable-ipv6 --without-ensurepip --with-c-locale-coercion --enable-shared --with-computed-gotos"
 
         [ -f Makefile ] && make clean && rm Makefile
 
@@ -639,7 +573,7 @@ END
 
         export CFLAGS="-m${BITS} -D__USE_GNU -fPIC -target ${PLATFORM_TRIPLET}${API} -include ${ORIGIN}/patch/ndk_api19/ndk_fix.h -isysroot $TOOLCHAIN/sysroot -isystem $TOOLCHAIN/sysroot/usr/include"
 
-        cp $ROOT/${ANDROID_NDK_ABI_NAME}.sh ./build.sh
+
 
 
 
@@ -653,38 +587,8 @@ END
 
         # == prepare the cross configure + build file for cpython
 
+        python_configure ./build.sh
 
-        cat >> ./build.sh <<END
-
-export _PYTHON_PROJECT_SRC=${PYDROID}
-export _PYTHON_PROJECT_BASE=$(pwd)
-export PYTHONDONTWRITEBYTECODE=1
-
-$CXX -shared -fPIC -Wl,-soname,libbrokenlocale.so -o ${APKUSR}/lib/libbrokenlocale.so ${ORIGIN}/patch/ndk_api19/brokenlocale.cpp
-
-PKG_CONFIG_PATH=${APKUSR}/lib/pkgconfig \\
-PLATFORM_TRIPLET=${PLATFORM_TRIPLET} \\
-CONFIG_SITE=config.site \\
- CFLAGS="$CFLAGS" \\
- \${_PYTHON_PROJECT_SRC}/configure --with-libs='${APKUSR}/lib/libbz2.a ${APKUSR}/lib/liblzma.a -L${APKUSR}/lib -lbrokenlocale -lstdc++ -lz -lm' \\
- --with-openssl=${APKUSR} --host=${PLATFORM_TRIPLET} --build=${HOST_TRIPLET} --prefix=${APKUSR} \\
- $PYOPTS 2>&1 >> ${BUILD_SRC}/build.log
-
-if [ -f Makefile ]
-then
-    TERM=linux reset
-    > \${_PYTHON_PROJECT_SRC}/Lib/compileall.py
-    #make libpython3.so libinstall inclinstall
-    make install
-
-    mv -vf ${PYLIB}/_sysconfigdata__linux_${ARCH}-linux-${ABI}.py ${PYASSETS}/_sysconfigdata__android_${ARCH}-linux-${ABI}.py
-else
-    echo ================== ${BUILD_SRC}/build.log ===================
-    tail -n 30 ${BUILD_SRC}/build.log
-    echo "Configuration failed for $PLATFORM_TRIPLET"
-    env
-fi
-END
 
         # == need a very clean env for true reproducibility
 
@@ -726,7 +630,7 @@ END
             mv -vf ${DISPOSE}/${move} ${PYLIB}/
         done
 
-        echo " * move final libs to prebuilt folder"
+        echo " * copy final libs to prebuilt folder"
 
         if [ -f ${APKUSR}/lib/${LIBPYTHON} ]
         then
@@ -742,12 +646,18 @@ END
             ${HOST}/bin/patchelf --set-soname ${LIBPYTHON} ${APKUSR}/lib/${LIBPYTHON}
 
             mkdir -p ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}
-            mv ${APKUSR}/lib/lib*.so ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}/
+            #mv ${APKUSR}/lib/lib*.so ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}/
+
+            # keep a copy so module can cross compile
+
+            /bin/cp -vf ${APKUSR}/lib/lib*.so ${ORIGIN}/prebuilt/${ANDROID_NDK_ABI_NAME}/
             echo " done"
         else
             break
         fi
     fi
+
+    . ${ORIGIN}/cross-build.sh
 
 done
 
