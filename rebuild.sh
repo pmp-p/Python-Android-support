@@ -1,14 +1,14 @@
 #!/bin/sh
 export HOST_TRIPLET=x86_64-linux-gnu
 export HOST_TAG=linux-x86_64
-export ENV=beeware
+export ENV=aosp
 
 export ARCHITECTURES="armeabi-v7a arm64-v8a x86 x86_64"
 
 
 export ANDROID_HOME=${ANDROID_HOME:-$(pwd)/android-sdk}
 export NDK_HOME=${NDK_HOME:-${ANDROID_HOME}/ndk-bundle}
-export DN=org.beeware
+export DN=org.${DN}
 
 export PYMAJOR=3
 
@@ -298,7 +298,7 @@ else
     rm -f ./Python/importlib.h ./Python/importlib_external.h
 fi
 
-# TODO: what about this one ? without regen importlib is actually a binary blob !
+# without regen importlib is a binary blob ! Use the host python build process to regen the target one then clean up
 # make regen-importlib
 if [ -f ./Python/importlib_external.h ]
 then
